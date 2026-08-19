@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use tauri::{AppHandle, State};
 
-use crate::domain::{auth, Host};
+use crate::domain::{auth, new_id, now, Host, HostInput};
 use crate::error::{AppError, AppResult};
 use crate::repository::{host_repo, identity_repo, key_repo};
 use crate::ssh::{
@@ -10,7 +10,7 @@ use crate::ssh::{
     AuthMethod, ConnectParams, Hop, HostKeyDecision, HostKeyEvent, PasswordPromptEvent,
     JUMP_DEPTH_LIMIT,
 };
-use crate::state::AppState;
+use crate::state::{AppState, CancelEntry};
 
 const MAX_INPUT_BYTES: usize = 1024 * 1024;
 
@@ -160,6 +160,113 @@ pub async fn ssh_connect_adhoc(
         .ssh
         .start(app, state.connection_prompts.clone(), params, reservation);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn ssh_test_connection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request_id: String,
+    host_id: String,
+    input: HostInput,
+) -> AppResult<()> {
+    validate_session_id(&request_id)?;
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+    let generation = state.next_request_generation();
+    {
+        let mut cancels = state.ssh_test_cancels.lock();
+        if cancels.contains_key(&request_id) {
+            return Err(AppError::Conflict(
+                "connection test is already running".into(),
+            ));
+        }
+        cancels.insert(
+            request_id.clone(),
+            CancelEntry {
+                generation,
+                sender: Some(cancel_tx),
+            },
+        );
+    }
+
+    let test = async {
+        let saved_password = host_repo::get(&state.db, &host_id).await?.password;
+        let host = connection_test_host(Some(host_id), input, saved_password)?;
+        let hops = build_hops(&state, &host).await?;
+        let session_id = format!("connection-test-{request_id}");
+        let connection = crate::ssh::establish(
+            &app,
+            &state.connection_prompts,
+            &session_id,
+            &hops,
+        )
+        .await?;
+        drop(connection);
+        Ok(())
+    };
+    let result = tokio::select! {
+        result = test => result,
+        _ = cancel_rx => Err(AppError::Cancelled),
+    };
+    remove_connection_test_cancel(&state, &request_id, generation);
+    result
+}
+
+#[tauri::command]
+pub async fn ssh_cancel_connection_test(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> AppResult<()> {
+    validate_session_id(&request_id)?;
+    if let Some(mut entry) = state.ssh_test_cancels.lock().remove(&request_id) {
+        if let Some(sender) = entry.sender.take() {
+            let _ = sender.send(());
+        }
+    }
+    Ok(())
+}
+
+fn remove_connection_test_cancel(state: &AppState, request_id: &str, generation: u64) {
+    let mut cancels = state.ssh_test_cancels.lock();
+    if cancels
+        .get(request_id)
+        .is_some_and(|entry| entry.generation == generation)
+    {
+        cancels.remove(request_id);
+    }
+}
+
+fn connection_test_host(
+    host_id: Option<String>,
+    mut input: HostInput,
+    saved_password: Option<String>,
+) -> AppResult<Host> {
+    if input.password.is_none() {
+        input.password = saved_password;
+    }
+    let input = host_repo::normalize(input)?;
+    let timestamp = now();
+    Ok(Host {
+        id: host_id.unwrap_or_else(new_id),
+        label: input.label,
+        address: input.address,
+        port: input.port,
+        group_id: input.group_id,
+        identity_id: input.identity_id,
+        username: input.username,
+        auth_type: input.auth_type,
+        key_id: input.key_id,
+        os_hint: input.os_hint,
+        notes: input.notes,
+        password: input.password,
+        jump_host_id: input.jump_host_id,
+        startup_command: input.startup_command,
+        last_used_at: None,
+        created_at: timestamp.clone(),
+        updated_at: timestamp,
+        deleted_at: None,
+        revision: 1,
+    })
 }
 
 #[tauri::command]
@@ -327,7 +434,11 @@ pub(crate) async fn resolve_credentials(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_dimensions, validate_input, validate_session_id, MAX_INPUT_BYTES};
+    use super::{
+        connection_test_host, validate_dimensions, validate_input, validate_session_id,
+        MAX_INPUT_BYTES,
+    };
+    use crate::domain::{auth, HostInput};
 
     #[test]
     fn rejects_invalid_session_ids() {
@@ -350,5 +461,34 @@ mod tests {
     fn rejects_oversized_terminal_input() {
         assert!(validate_input(&"x".repeat(MAX_INPUT_BYTES)).is_ok());
         assert!(validate_input(&"x".repeat(MAX_INPUT_BYTES + 1)).is_err());
+    }
+
+    #[test]
+    fn connection_test_uses_the_saved_password_when_the_form_keeps_it() {
+        let input = HostInput {
+            label: "Production".into(),
+            address: "example.com".into(),
+            port: 22,
+            group_id: None,
+            identity_id: None,
+            username: Some("deploy".into()),
+            auth_type: Some(auth::PASSWORD.into()),
+            key_id: None,
+            os_hint: None,
+            notes: None,
+            jump_host_id: None,
+            startup_command: None,
+            password: None,
+        };
+
+        let host = connection_test_host(
+            Some("host-1".into()),
+            input,
+            Some("saved-secret".into()),
+        )
+        .unwrap();
+
+        assert_eq!(host.id, "host-1");
+        assert_eq!(host.password.as_deref(), Some("saved-secret"));
     }
 }

@@ -1,8 +1,15 @@
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 
 import {
+  Button,
   Field,
   ErrorState,
   FormBody,
@@ -70,10 +77,24 @@ export function HostFormDialog({
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const connectionTestId = useRef<string | null>(null);
+  const cancelConnectionTest = useCallback(() => {
+    const requestId = connectionTestId.current;
+    if (!requestId) return;
+    connectionTestId.current = null;
+    void ipc.ssh.cancelConnectionTest(requestId).catch(() => {});
+  }, []);
+  const close = useCallback(() => {
+    cancelConnectionTest();
+    onClose();
+  }, [cancelConnectionTest, onClose]);
+
+  useEffect(() => cancelConnectionTest, [cancelConnectionTest]);
+
   return (
     <FormDialog
       open={open}
-      onClose={onClose}
+      onClose={close}
       width="w-[var(--dialog-width-lg)]"
       title={hostId ? t("hostForm.editTitle") : t("hostForm.newTitle")}
     >
@@ -81,7 +102,8 @@ export function HostFormDialog({
         key={hostId ?? `new:${initialGroupId ?? "ungrouped"}`}
         hostId={hostId}
         initialGroupId={initialGroupId}
-        onClose={onClose}
+        onClose={close}
+        connectionTestId={connectionTestId}
       />
     </FormDialog>
   );
@@ -91,10 +113,12 @@ function HostFormBody({
   hostId,
   initialGroupId,
   onClose,
+  connectionTestId,
 }: {
   hostId: string | null;
   initialGroupId: string | null;
   onClose: () => void;
+  connectionTestId: RefObject<string | null>;
 }) {
   const { t } = useI18n();
   const { data: groups = [] } = useGroups();
@@ -104,6 +128,7 @@ function HostFormBody({
     useIdentities();
   const createHost = useCreateHost();
   const updateHost = useUpdateHost();
+  const [testingConnection, setTestingConnection] = useState(false);
 
   const {
     data: host,
@@ -171,7 +196,7 @@ function HostFormBody({
     }
   };
 
-  const onSubmit = handleSubmit(async (values) => {
+  const inputFromValues = (values: FormValues): HostInput => {
     const base = {
       label: values.label.trim(),
       address: values.address.trim(),
@@ -183,7 +208,7 @@ function HostFormBody({
       notes: values.notes.trim() || null,
     };
 
-    const input: HostInput = values.identityId
+    return values.identityId
       ? {
           ...base,
           identityId: values.identityId,
@@ -204,6 +229,10 @@ function HostFormBody({
             edited: passwordEdited,
           }),
         };
+  };
+
+  const onSubmit = handleSubmit(async (values) => {
+    const input = inputFromValues(values);
 
     try {
       if (hostId) {
@@ -216,6 +245,30 @@ function HostFormBody({
       toast.error(t("hostForm.saveError"), errorMessage(err));
     }
   });
+
+  const testConnection = handleSubmit(async (values) => {
+    if (!hostId) return;
+    const requestId = crypto.randomUUID();
+    connectionTestId.current = requestId;
+    setTestingConnection(true);
+    try {
+      await ipc.ssh.testConnection(requestId, hostId, inputFromValues(values));
+      if (connectionTestId.current === requestId) {
+        toast.success(t("hostForm.testSuccess"));
+      }
+    } catch (error) {
+      if (connectionTestId.current === requestId) {
+        toast.error(t("hostForm.testError"), errorMessage(error));
+      }
+    } finally {
+      if (connectionTestId.current === requestId) {
+        connectionTestId.current = null;
+        setTestingConnection(false);
+      }
+    }
+  });
+
+  const saving = createHost.isPending || updateHost.isPending;
 
   if (hostId && isLoading) return <FormLoading />;
   if (hostId && isError) {
@@ -234,7 +287,23 @@ function HostFormBody({
       onClose={onClose}
       onSubmit={onSubmit}
       submitLabel={hostId ? t("common.saveChanges") : t("hostForm.create")}
-      pending={createHost.isPending || updateHost.isPending}
+      pending={saving}
+      submitDisabled={testingConnection}
+      footerStart={
+        hostId ? (
+          <Button
+            type="button"
+            variant="outline"
+            loading={testingConnection}
+            disabled={saving}
+            onClick={() => void testConnection()}
+          >
+            {testingConnection
+              ? t("hostForm.testingConnection")
+              : t("hostForm.testConnection")}
+          </Button>
+        ) : undefined
+      }
     >
       <div className="grid grid-cols-2 gap-3">
         <Field

@@ -31,6 +31,15 @@ export function useCreateHost() {
   });
 }
 
+export function useDuplicateHost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, suffix }: { id: string; suffix: string }) =>
+      ipc.hosts.duplicate(id, suffix),
+    onSuccess: () => qc.invalidateQueries({ queryKey: hostKeys.hosts }),
+  });
+}
+
 export function useUpdateHost() {
   const qc = useQueryClient();
   return useMutation({

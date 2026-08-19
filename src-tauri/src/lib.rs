@@ -40,6 +40,7 @@ fn cleanup_orphaned_sessions(state: &AppState) {
     state.connection_prompts.passwords.lock().clear();
     state.ai_cancels.lock().clear();
     state.batch_cancels.lock().clear();
+    state.ssh_test_cancels.lock().clear();
     for (_, cancel) in state.task_cancels.lock().drain() {
         cancel.cancel();
     }
@@ -157,6 +158,7 @@ pub fn run() {
             commands::hosts::hosts_get,
             commands::hosts::hosts_reveal_password,
             commands::hosts::hosts_create,
+            commands::hosts::hosts_duplicate,
             commands::hosts::hosts_update,
             commands::hosts::hosts_set_os_hint,
             commands::hosts::hosts_move,
@@ -195,6 +197,8 @@ pub fn run() {
             commands::settings::settings_apply_json,
             commands::ssh::ssh_connect,
             commands::ssh::ssh_connect_adhoc,
+            commands::ssh::ssh_test_connection,
+            commands::ssh::ssh_cancel_connection_test,
             commands::ssh::ssh_send,
             commands::ssh::ssh_resize,
             commands::ssh::ssh_disconnect,
@@ -313,6 +317,7 @@ mod tests {
         let state = AppState::new(pool);
 
         let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let (ssh_cancel_tx, mut ssh_cancel_rx) = tokio::sync::oneshot::channel::<()>();
         state.batch_cancels.lock().insert(
             "request-1".into(),
             CancelEntry {
@@ -320,12 +325,24 @@ mod tests {
                 sender: Some(cancel_tx),
             },
         );
+        state.ssh_test_cancels.lock().insert(
+            "connection-test-1".into(),
+            CancelEntry {
+                generation: 2,
+                sender: Some(ssh_cancel_tx),
+            },
+        );
 
         cleanup_orphaned_sessions(&state);
 
         assert!(state.batch_cancels.lock().is_empty());
+        assert!(state.ssh_test_cancels.lock().is_empty());
         assert!(matches!(
             cancel_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
+        assert!(matches!(
+            ssh_cancel_rx.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Closed)
         ));
     }

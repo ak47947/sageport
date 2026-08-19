@@ -52,6 +52,8 @@ pub struct AppState {
 
     pub batch_cancels: Mutex<HashMap<String, CancelEntry>>,
 
+    pub ssh_test_cancels: Mutex<HashMap<String, CancelEntry>>,
+
     pub task_cancels: Mutex<HashMap<String, Arc<TransferCancel>>>,
 
     request_generation: AtomicU64,
@@ -75,6 +77,7 @@ impl AppState {
             update: UpdateManager::new(),
             ai_cancels: Mutex::new(HashMap::new()),
             batch_cancels: Mutex::new(HashMap::new()),
+            ssh_test_cancels: Mutex::new(HashMap::new()),
             task_cancels: Mutex::new(HashMap::new()),
             request_generation: AtomicU64::new(0),
             sync_oauth: Mutex::new(SyncOAuthSlot::default()),

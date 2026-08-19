@@ -75,6 +75,15 @@ pub async fn hosts_create(state: State<'_, AppState>, input: HostInput) -> AppRe
 }
 
 #[tauri::command]
+pub async fn hosts_duplicate(
+    state: State<'_, AppState>,
+    id: String,
+    suffix: String,
+) -> AppResult<HostView> {
+    Ok(host_repo::duplicate(&state.db, &id, suffix).await?.into())
+}
+
+#[tauri::command]
 pub async fn hosts_update(
     state: State<'_, AppState>,
     id: String,

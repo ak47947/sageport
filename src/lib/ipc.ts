@@ -80,6 +80,8 @@ export const ipc = {
     revealPassword: (id: string) =>
       invoke<string>("hosts_reveal_password", { id }),
     create: (input: HostInput) => invoke<Host>("hosts_create", { input }),
+    duplicate: (id: string, suffix: string) =>
+      invoke<Host>("hosts_duplicate", { id, suffix }),
     update: (id: string, input: HostInput) =>
       invoke<Host>("hosts_update", { id, input }),
     setOsHint: (id: string, osHint: string) =>
@@ -222,6 +224,10 @@ export const ipc = {
       cols: number;
       rows: number;
     }) => invoke<void>("ssh_connect_adhoc", params),
+    testConnection: (requestId: string, hostId: string, input: HostInput) =>
+      invoke<void>("ssh_test_connection", { requestId, hostId, input }),
+    cancelConnectionTest: (requestId: string) =>
+      invoke<void>("ssh_cancel_connection_test", { requestId }),
     send: (sessionId: string, attempt: number, data: string) =>
       invoke<void>("ssh_send", { sessionId, attempt, data }),
     resize: (sessionId: string, attempt: number, cols: number, rows: number) =>

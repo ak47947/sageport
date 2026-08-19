@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 import { I18nProvider } from "@/i18n";
+import { ipc } from "@/lib/ipc";
 import type { Group, Host, Identity, SshKey } from "@/types/models";
 import { HostFormDialog } from "./HostFormDialog";
 
@@ -53,6 +60,10 @@ vi.mock("@/lib/ipc", () => ({
       update: vi.fn(async () => host),
       create: vi.fn(async () => host),
     },
+    ssh: {
+      testConnection: vi.fn(async () => undefined),
+      cancelConnectionTest: vi.fn(async () => undefined),
+    },
     keys: { list: vi.fn(async (): Promise<SshKey[]> => []) },
     identities: { list: vi.fn(async (): Promise<Identity[]> => []) },
     settings: {
@@ -81,6 +92,8 @@ function renderDialog() {
 }
 
 describe("HostFormDialog", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -101,5 +114,50 @@ describe("HostFormDialog", () => {
         .queryAllByRole("combobox")
         .some((element) => element.textContent === "No group"),
     ).toBe(false);
+  });
+
+  it("tests the current form values without saving the host", async () => {
+    renderDialog();
+
+    const address = await screen.findByDisplayValue("10.0.0.4");
+    fireEvent.change(address, { target: { value: "10.0.0.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(ipc.ssh.testConnection)).toHaveBeenCalledWith(
+        expect.any(String),
+        "host-1",
+        expect.objectContaining({
+          address: "10.0.0.5",
+          port: 22,
+          username: "root",
+          authType: "password",
+          password: undefined,
+        }),
+      );
+    });
+    expect(vi.mocked(ipc.hosts.update)).not.toHaveBeenCalled();
+  });
+
+  it("cancels an active connection test when the editor closes", async () => {
+    vi.mocked(ipc.ssh.testConnection).mockImplementationOnce(
+      () => new Promise(() => {}),
+    );
+    const view = renderDialog();
+
+    await screen.findByDisplayValue("10.0.0.4");
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => {
+      expect(vi.mocked(ipc.ssh.testConnection)).toHaveBeenCalled();
+    });
+    const requestId = vi.mocked(ipc.ssh.testConnection).mock.calls[0]?.[0];
+
+    view.unmount();
+
+    await waitFor(() => {
+      expect(vi.mocked(ipc.ssh.cancelConnectionTest)).toHaveBeenCalledWith(
+        requestId,
+      );
+    });
   });
 });

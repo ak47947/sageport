@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   Copy,
+  CopyPlus,
   FileInput,
   Folder,
   FolderPlus,
@@ -60,6 +61,7 @@ import {
   useCheckHostHealth,
   useDeleteGroup,
   useDeleteHost,
+  useDuplicateHost,
   useGroups,
   useHosts,
   useMoveGroup,
@@ -122,6 +124,7 @@ export function HostsView() {
     refetch: refetchGroups,
   } = useGroups();
   const deleteHost = useDeleteHost();
+  const duplicateHost = useDuplicateHost();
   const deleteGroup = useDeleteGroup();
   const moveHost = useMoveHost();
   const moveGroup = useMoveGroup();
@@ -397,6 +400,17 @@ export function HostsView() {
     });
   };
 
+  const duplicate = (host: Host) => {
+    void duplicateHost
+      .mutateAsync({
+        id: host.id,
+        suffix: t("hosts.copySuffix"),
+      })
+      .catch((error) =>
+        toast.error(t("hosts.duplicateError"), errorMessage(error)),
+      );
+  };
+
   const requestDeleteGroup = (section: {
     id: string;
     name: string;
@@ -651,6 +665,7 @@ export function HostsView() {
                     onDragMove={updateHostDrag}
                     onDragEnd={endHostDrag}
                     onCheckHealth={runHealthCheck}
+                    onDuplicate={() => duplicate(host)}
                     onEdit={() => openHostForm(host.id)}
                     onDelete={() => requestDeleteHost(host)}
                   />
@@ -848,6 +863,7 @@ function HostRow({
   onDragMove,
   onDragEnd,
   onCheckHealth,
+  onDuplicate,
   onEdit,
   onDelete,
 }: {
@@ -858,6 +874,7 @@ function HostRow({
   onDragMove: (clientX: number, clientY: number) => void;
   onDragEnd: (didDrag: boolean) => void;
   onCheckHealth: (hostIds: string[]) => void;
+  onDuplicate: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -1038,9 +1055,13 @@ function HostRow({
         <ContextMenuItem onSelect={() => void copySshCommand()}>
           <Copy /> {t("hosts.copySshCommand")}
         </ContextMenuItem>
+        <ContextMenuItem onSelect={onDuplicate}>
+          <CopyPlus /> {t("hosts.duplicate")}
+        </ContextMenuItem>
         <ContextMenuItem onSelect={onEdit}>
           <Pencil /> {t("common.edit")}
         </ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem destructive onSelect={onDelete}>
           <Trash2 /> {t("common.delete")}
         </ContextMenuItem>

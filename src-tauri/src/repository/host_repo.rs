@@ -241,6 +241,46 @@ pub async fn create(pool: &SqlitePool, input: HostInput) -> AppResult<Host> {
     Ok(host)
 }
 
+fn duplicate_label(label: &str, suffix: &str) -> AppResult<String> {
+    let suffix = suffix.trim();
+    if suffix.is_empty() || suffix.chars().any(char::is_control) {
+        return Err(AppError::Invalid("invalid host copy suffix".into()));
+    }
+    let ending = format!(" - {suffix}");
+    if ending.len() >= MAX_LABEL_BYTES {
+        return Err(AppError::Invalid("host copy suffix is too long".into()));
+    }
+    let mut prefix_bytes = label.len().min(MAX_LABEL_BYTES - ending.len());
+    while !label.is_char_boundary(prefix_bytes) {
+        prefix_bytes -= 1;
+    }
+    Ok(format!("{}{ending}", label[..prefix_bytes].trim_end()))
+}
+
+pub async fn duplicate(pool: &SqlitePool, id: &str, suffix: String) -> AppResult<Host> {
+    let source = get(pool, id).await?;
+    let label = duplicate_label(&source.label, &suffix)?;
+    create(
+        pool,
+        HostInput {
+            label,
+            address: source.address,
+            port: source.port,
+            group_id: source.group_id,
+            identity_id: source.identity_id,
+            username: source.username,
+            auth_type: source.auth_type,
+            key_id: source.key_id,
+            os_hint: source.os_hint,
+            notes: source.notes,
+            jump_host_id: source.jump_host_id,
+            startup_command: source.startup_command,
+            password: source.password,
+        },
+    )
+    .await
+}
+
 pub(crate) async fn create_in(
     connection: &mut SqliteConnection,
     input: HostInput,
@@ -618,6 +658,57 @@ mod tests {
             .await
             .unwrap();
         assert!(cleared.password.is_none());
+    }
+
+    #[tokio::test]
+    async fn duplicates_connection_information_with_a_new_identity() {
+        let pool = test_pool().await;
+        let jump = create(&pool, input("jump")).await.unwrap();
+        let mut source_input = input("production");
+        source_input.address = "10.0.0.4".into();
+        source_input.port = 2202;
+        source_input.username = Some("deploy".into());
+        source_input.auth_type = Some(auth::PASSWORD.into());
+        source_input.os_hint = Some("linux".into());
+        source_input.notes = Some("Primary server".into());
+        source_input.jump_host_id = Some(jump.id.clone());
+        source_input.startup_command = Some("cd /srv/app".into());
+        source_input.password = Some("secret".into());
+        let source = create(&pool, source_input).await.unwrap();
+
+        let copy = duplicate(&pool, &source.id, "Copy".into())
+            .await
+            .unwrap();
+
+        assert_ne!(copy.id, source.id);
+        assert_eq!(copy.label, "production - Copy");
+        assert_eq!(copy.address, source.address);
+        assert_eq!(copy.port, source.port);
+        assert_eq!(copy.group_id, source.group_id);
+        assert_eq!(copy.identity_id, source.identity_id);
+        assert_eq!(copy.username, source.username);
+        assert_eq!(copy.auth_type, source.auth_type);
+        assert_eq!(copy.key_id, source.key_id);
+        assert_eq!(copy.os_hint, source.os_hint);
+        assert_eq!(copy.notes, source.notes);
+        assert_eq!(copy.jump_host_id, source.jump_host_id);
+        assert_eq!(copy.startup_command, source.startup_command);
+        assert_eq!(copy.password, source.password);
+        assert_eq!(copy.last_used_at, None);
+        assert_eq!(copy.revision, 1);
+    }
+
+    #[tokio::test]
+    async fn duplicate_truncates_long_multibyte_labels_before_the_suffix() {
+        let pool = test_pool().await;
+        let mut source_input = input("source");
+        source_input.label = "主".repeat(MAX_LABEL_BYTES / 3);
+        let source = create(&pool, source_input).await.unwrap();
+
+        let copy = duplicate(&pool, &source.id, "副本".into()).await.unwrap();
+
+        assert!(copy.label.len() <= MAX_LABEL_BYTES);
+        assert_eq!(copy.label, format!("{} - 副本", "主".repeat(82)));
     }
 
     #[tokio::test]
