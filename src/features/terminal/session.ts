@@ -13,6 +13,7 @@ import type { TerminalStatusUpdate, TerminalTransport } from "./transport";
 import { attachWebglRenderer, createTerminal } from "./xterm";
 import { HighlightAddon } from "./highlight-addon";
 import type { HighlightRule } from "./highlight-rules";
+import { cwdFromOsc7 } from "./working-directory";
 
 export const CONNECT_TIMEOUT_MS = 45_000;
 export const MAX_PENDING_INPUT_BYTES = 1024 * 1024;
@@ -36,6 +37,8 @@ export interface TerminalSessionOptions {
   highlightRules?: HighlightRule[];
   onStatus: (event: SessionStatusEvent) => void;
   onUserInput?: (data: string) => void;
+  onCommand?: (command: string) => void;
+  onCwd?: (cwd: string) => void;
   onDispose?: () => void;
 }
 
@@ -88,6 +91,12 @@ export class TerminalSession {
     this.term.loadAddon(this.highlights);
     this.commands = new CommandTracker(term);
 
+    const cwdHandler = term.parser.registerOscHandler(7, (value) => {
+      const cwd = cwdFromOsc7(value);
+      if (cwd) opts.onCwd?.(cwd);
+      return true;
+    });
+
     const dataSub = term.onData((data) => {
       this.send(data);
       opts.onUserInput?.(data);
@@ -100,6 +109,7 @@ export class TerminalSession {
     this.disposables.push(
       () => dataSub.dispose(),
       () => resizeSub.dispose(),
+      () => cwdHandler.dispose(),
     );
   }
 
@@ -196,7 +206,8 @@ export class TerminalSession {
       );
       return;
     }
-    this.commands.noteInput(data);
+    const command = this.commands.noteInput(data);
+    if (command) this.opts.onCommand?.(command);
     this.pendingInput += data;
     this.pendingInputBytes += dataBytes;
     this.flushInput();

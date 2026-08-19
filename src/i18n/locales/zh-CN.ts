@@ -793,6 +793,9 @@ export const zhCN: Dictionary = {
     },
     emptyDir: "此文件夹为空",
     fileList: "文件列表",
+    fileTree: "文件树",
+    viewAsList: "切换为列表视图",
+    viewAsTree: "切换为树状视图",
     filterPlaceholder: "筛选文件",
     noMatches: "没有匹配的文件",
     sort: {

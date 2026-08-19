@@ -15,6 +15,7 @@ import type {
   TransferEvent,
   TransferHistoryEntry,
 } from "@/types/models";
+import { findPane, terminalPanes, useTabsStore } from "@/workbench/tabs";
 import { transferHistoryKey } from "./api";
 import {
   pendingTransfer,
@@ -54,6 +55,7 @@ export const MAX_SFTP_TABS = 10;
 export type PaneSide = "left" | "right";
 export type TabKind = "local" | "remote";
 export type TabStatus = SftpStatusKind | "idle";
+export type FileViewMode = "list" | "tree";
 
 export interface SftpTab {
   id: string;
@@ -63,6 +65,7 @@ export interface SftpTab {
   hostId?: string;
   title: string;
   cwd: string;
+  home?: string;
   navigationPath?: string;
   status: TabStatus;
   entries: FileEntry[];
@@ -71,6 +74,9 @@ export interface SftpTab {
   historyIndex: number;
   loading: boolean;
   error?: string;
+  followedPaneId?: string;
+  followPath?: string;
+  treeRevision?: number;
 }
 
 export interface ActiveDeleteOperation extends DeleteEvent {
@@ -94,6 +100,7 @@ interface SftpState {
 
   showHidden: boolean;
   showFileToolbar: boolean;
+  viewMode: FileViewMode;
   pendingConflict: {
     name: string;
     remaining: number;
@@ -103,12 +110,23 @@ interface SftpState {
   setRatio: (r: number) => void;
   toggleHidden: () => void;
   toggleFileToolbar: () => void;
+  setViewMode: (viewMode: FileViewMode) => void;
   setConflictApplyToRemaining: (value: boolean) => void;
   resolveConflict: (decision: ConflictAction) => void;
 
   ensureLocalTab: (side: PaneSide) => Promise<void>;
   addLocalTab: (side: PaneSide) => Promise<void>;
   addRemoteTab: (side: PaneSide, host: Host) => void;
+  followTerminal: (
+    side: PaneSide,
+    terminal: {
+      id: string;
+      hostId: string;
+      title: string;
+      cwd?: string;
+      cwdConfirmed?: boolean;
+    },
+  ) => void;
   reconnectTab: (side: PaneSide, tabId: string) => void;
   closeTab: (side: PaneSide, tabId: string) => void;
   moveTab: (side: PaneSide, tabId: string, toIndex: number) => void;
@@ -340,14 +358,26 @@ export const useSftpStore = create<SftpState>((set, get) => {
         selected: [],
         loading: false,
         ...(historyIndex === null
+          ? { treeRevision: (current.treeRevision ?? 0) + 1 }
+          : null),
+        ...(historyIndex === null
           ? null
           : historyIndex === undefined
             ? pushNavigationHistory(current, path)
             : { historyIndex }),
       }));
+      const current = get().panes[side].tabs.find((item) => item.id === tabId);
+      if (current?.followedPaneId && current.followPath === path) {
+        const tabs = useTabsStore.getState();
+        const terminal = findPane(tabs.tabs, current.followedPaneId);
+        if (terminal?.cwd === path && !terminal.cwdConfirmed) {
+          tabs.setTerminalCwd(terminal.id, path, undefined, true);
+        }
+      }
     } catch (err) {
       if (!isCurrent()) return;
       const code = errorCode(err);
+      const current = get().panes[side].tabs.find((item) => item.id === tabId);
       patchTab(side, tabId, {
         loading: false,
         ...(tab.kind === "remote" && code === "network"
@@ -355,6 +385,22 @@ export const useSftpStore = create<SftpState>((set, get) => {
           : null),
         error: describeNavigationError(code, path, errorMessage(err)),
       });
+      if (
+        code === "not_found" &&
+        current?.followedPaneId &&
+        current.followPath === path &&
+        current.cwd
+      ) {
+        const tabs = useTabsStore.getState();
+        const terminal = findPane(tabs.tabs, current.followedPaneId);
+        if (terminal?.cwd === path && terminal.cwdConfirmed === false) {
+          tabs.setTerminalCwd(terminal.id, current.cwd, undefined, true);
+          patchTab(side, tabId, {
+            navigationPath: undefined,
+            error: undefined,
+          });
+        }
+      }
     }
   };
 
@@ -366,12 +412,14 @@ export const useSftpStore = create<SftpState>((set, get) => {
     pendingConflict: null,
     showHidden: false,
     showFileToolbar: false,
+    viewMode: "tree",
 
     setRatio: (r) => set({ ratio: Math.max(0, Math.min(r, 1)) }),
 
     toggleHidden: () => set((s) => ({ showHidden: !s.showHidden })),
     toggleFileToolbar: () =>
       set((state) => ({ showFileToolbar: !state.showFileToolbar })),
+    setViewMode: (viewMode) => set({ viewMode }),
     setConflictApplyToRemaining: (applyToRemaining) =>
       set((state) => ({
         pendingConflict: state.pendingConflict
@@ -415,7 +463,7 @@ export const useSftpStore = create<SftpState>((set, get) => {
       }));
       try {
         const home = await ipc.sftp.home(null);
-        patchTab(side, id, { title: home, cwd: home });
+        patchTab(side, id, { title: home, cwd: home, home });
         await loadEntries(side, id, home);
       } catch (err) {
         patchTab(side, id, { loading: false, error: errorMessage(err) });
@@ -446,6 +494,77 @@ export const useSftpStore = create<SftpState>((set, get) => {
         },
       }));
       void ipc.sftp.connect(id, host.id).catch((err) => {
+        patchTab(side, id, {
+          status: "error",
+          loading: false,
+          error: describeConnectError(errorCode(err), errorMessage(err)),
+        });
+      });
+    },
+
+    followTerminal: (side, terminal) => {
+      const pane = get().panes[side];
+      const existing = pane.tabs.find(
+        (tab) =>
+          tab.kind === "remote" &&
+          tab.followedPaneId !== undefined &&
+          (tab.followedPaneId === terminal.id ||
+            tab.hostId === terminal.hostId),
+      );
+      if (existing) {
+        patchTab(side, existing.id, {
+          followedPaneId: terminal.id,
+          followPath: terminal.cwd,
+        });
+        get().setActive(side, existing.id);
+        if (
+          existing.status === "connected" &&
+          terminal.cwd &&
+          terminal.cwd === existing.cwd &&
+          !terminal.cwdConfirmed
+        ) {
+          useTabsStore
+            .getState()
+            .setTerminalCwd(terminal.id, terminal.cwd, undefined, true);
+        }
+        if (
+          existing.status === "connected" &&
+          terminal.cwd &&
+          terminal.cwd !== existing.cwd &&
+          terminal.cwd !== existing.navigationPath
+        ) {
+          void loadEntries(side, existing.id, terminal.cwd, null);
+        }
+        return;
+      }
+      if (!canAddTab(false)) return;
+      const id = crypto.randomUUID();
+      const tab: SftpTab = {
+        id,
+        kind: "remote",
+        connectionId: id,
+        hostId: terminal.hostId,
+        title: terminal.title,
+        cwd: "",
+        status: "connecting",
+        entries: [],
+        selected: [],
+        history: [],
+        historyIndex: -1,
+        loading: true,
+        followedPaneId: terminal.id,
+        followPath: terminal.cwd,
+      };
+      set((state) => ({
+        panes: {
+          ...state.panes,
+          [side]: {
+            tabs: [...state.panes[side].tabs, tab],
+            activeTabId: id,
+          },
+        },
+      }));
+      void ipc.sftp.connect(id, terminal.hostId).catch((err) => {
         patchTab(side, id, {
           status: "error",
           loading: false,
@@ -576,7 +695,11 @@ export const useSftpStore = create<SftpState>((set, get) => {
           let error: string | undefined;
           try {
             const home = await ipc.sftp.home(connectionId);
-            await loadEntries(side, tab.id, home);
+            patchTab(side, tab.id, { home });
+            const current = get().panes[side].tabs.find(
+              (item) => item.id === tab.id,
+            );
+            await loadEntries(side, tab.id, current?.followPath || home);
           } catch (err) {
             error = errorMessage(err);
           }
@@ -897,4 +1020,28 @@ export const useSftpStore = create<SftpState>((set, get) => {
       }
     },
   };
+});
+
+let openTerminalPaneIds = new Set(
+  terminalPanes(useTabsStore.getState().tabs).map((pane) => pane.id),
+);
+
+useTabsStore.subscribe((state) => {
+  const nextTerminalPaneIds = new Set(
+    terminalPanes(state.tabs).map((pane) => pane.id),
+  );
+  const closedTerminalPaneIds = new Set(
+    [...openTerminalPaneIds].filter((id) => !nextTerminalPaneIds.has(id)),
+  );
+  openTerminalPaneIds = nextTerminalPaneIds;
+  if (closedTerminalPaneIds.size === 0) return;
+
+  const { panes, closeTab } = useSftpStore.getState();
+  for (const side of ["left", "right"] as const) {
+    for (const tab of panes[side].tabs) {
+      if (tab.followedPaneId && closedTerminalPaneIds.has(tab.followedPaneId)) {
+        closeTab(side, tab.id);
+      }
+    }
+  }
 });

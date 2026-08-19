@@ -123,7 +123,7 @@ const FILE_ICONS: Record<
   video: { icon: FileVideo, className: "text-primary" },
 };
 
-function EntryIcon({ entry }: { entry: FileEntry }) {
+export function EntryIcon({ entry }: { entry: FileEntry }) {
   const className = "size-4 shrink-0";
   if (entry.isSymlink || entry.kind === "symlink") {
     const Icon = entry.kind === "dir" ? FolderSymlink : FileSymlink;
@@ -354,7 +354,7 @@ export function FileList({
     setDragState(null);
   };
 
-  if (tab.loading) {
+  if (tab.loading && !tab.cwd) {
     return <LoadingState label={t("sftp.loading")} fill />;
   }
 
@@ -760,7 +760,7 @@ function InlineCreateRow({
   );
 }
 
-function InlineNameInput({
+export function InlineNameInput({
   initialValue,
   ariaLabel,
   onSubmit,

@@ -57,6 +57,9 @@ export interface TerminalPane {
   status: TerminalStatus;
   error?: string;
   errorCode?: string | null;
+  cwd?: string;
+  home?: string;
+  cwdConfirmed?: boolean;
 
   attempt: number;
   restorePending?: boolean;
@@ -137,6 +140,13 @@ interface TabsState {
     status: TerminalStatus,
     error?: string,
     errorCode?: string | null,
+  ) => void;
+
+  setTerminalCwd: (
+    paneId: string,
+    cwd: string,
+    home?: string,
+    confirmed?: boolean,
   ) => void;
 
   reconnectTerminal: (paneId: string) => void;
@@ -615,6 +625,16 @@ export const useTabsStore = create<TabsState>((set, get) => {
     setTerminalStatus: (paneId, status, error, errorCode) =>
       patchPane(paneId, { status, error, errorCode }),
 
+    setTerminalCwd: (paneId, cwd, home, confirmed) => {
+      const pane = findPane(get().tabs, paneId);
+      if (!pane) return;
+      patchPane(paneId, {
+        cwd,
+        home: pane.home ?? home,
+        ...(confirmed === undefined ? null : { cwdConfirmed: confirmed }),
+      });
+    },
+
     reconnectTerminal: (paneId) => {
       const pane = findPane(get().tabs, paneId);
       if (!pane) return;
@@ -657,6 +677,9 @@ if (
             status: _status,
             error: _error,
             errorCode: _errorCode,
+            cwd: _cwd,
+            home: _home,
+            cwdConfirmed: _cwdConfirmed,
             attempt: _attempt,
             restorePending: _restorePending,
             ...pane

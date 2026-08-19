@@ -4,6 +4,7 @@ import { useI18n } from "@/i18n";
 import { useTheme } from "@/themes/useTheme";
 import {
   terminalPanes,
+  findPane,
   useTabsStore,
   type AdhocTarget,
   type TerminalTarget,
@@ -20,6 +21,7 @@ import { TerminalSession } from "./session";
 import { disposeSession, getSession, registerSession } from "./sessions";
 import { localTransport, sshAdhocTransport, sshTransport } from "./transport";
 import { terminalTheme } from "./xterm";
+import { cwdFromCdCommand } from "./working-directory";
 
 export function TerminalView({
   sessionId,
@@ -129,6 +131,14 @@ export function TerminalView({
           }
         }
       },
+      onCommand: (command) => {
+        const tabs = useTabsStore.getState();
+        const pane = findPane(tabs.tabs, sessionId);
+        const cwd = cwdFromCdCommand(command, pane?.cwd, pane?.home);
+        if (cwd) tabs.setTerminalCwd(sessionId, cwd, undefined, false);
+      },
+      onCwd: (cwd) =>
+        useTabsStore.getState().setTerminalCwd(sessionId, cwd, undefined, true),
       onDispose: () => {
         autocomplete.dispose();
         if (isSshLike) {

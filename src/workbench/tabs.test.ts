@@ -104,6 +104,20 @@ describe("openTerminal", () => {
   });
 });
 
+describe("terminal working directory", () => {
+  it("updates the pane directory and keeps its first directory as home", () => {
+    const paneId = openHost("a");
+
+    useTabsStore.getState().setTerminalCwd(paneId, "/home/me", "/home/me");
+    useTabsStore.getState().setTerminalCwd(paneId, "/srv/app", "/srv/app");
+
+    expect(terminalPanes(useTabsStore.getState().tabs)[0]).toMatchObject({
+      cwd: "/srv/app",
+      home: "/home/me",
+    });
+  });
+});
+
 describe("splitPane", () => {
   it("clones the source connection into a sibling pane and focuses it", () => {
     const source = openHost("a");

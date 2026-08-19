@@ -813,6 +813,9 @@ export const en = {
     },
     emptyDir: "This folder is empty",
     fileList: "Files",
+    fileTree: "File tree",
+    viewAsList: "View as list",
+    viewAsTree: "View as tree",
     filterPlaceholder: "Filter files",
     noMatches: "No matching files",
     sort: {

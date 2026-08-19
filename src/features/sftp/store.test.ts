@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/ipc", () => ({
   ipc: {
+    ssh: {
+      disconnect: vi.fn(() => Promise.resolve()),
+    },
+    pty: {
+      close: vi.fn(() => Promise.resolve()),
+    },
     sftp: {
+      connect: vi.fn(() => Promise.resolve()),
+      disconnect: vi.fn(() => Promise.resolve()),
       home: vi.fn(() => Promise.resolve("/home/test")),
       list: vi.fn(() => Promise.resolve([])),
       transfer: vi.fn(() => Promise.resolve()),
@@ -23,6 +31,7 @@ import type {
   TransferEvent,
   TransferHistoryEntry,
 } from "@/types/models";
+import { findPane, useTabsStore } from "@/workbench/tabs";
 import { transferHistoryKey } from "./api";
 import {
   isValidEntryName,
@@ -107,6 +116,19 @@ describe("SFTP navigation state", () => {
     expect(tab?.cwd).toBe("/fast");
     expect(tab?.history.at(-1)).toBe("/fast");
   });
+
+  it("invalidates tree caches when the current directory is refreshed", async () => {
+    await useSftpStore
+      .getState()
+      .navigate("left", "local-tab", "/root/projects");
+    expect(
+      useSftpStore.getState().panes.left.tabs[0]?.treeRevision,
+    ).toBeUndefined();
+
+    await useSftpStore.getState().refresh("left", "local-tab");
+
+    expect(useSftpStore.getState().panes.left.tabs[0]?.treeRevision).toBe(1);
+  });
 });
 
 describe("SFTP path and name helpers", () => {
@@ -134,6 +156,10 @@ describe("SFTP path and name helpers", () => {
 });
 
 describe("SFTP file toolbar visibility", () => {
+  it("starts in tree view", () => {
+    expect(useSftpStore.getInitialState().viewMode).toBe("tree");
+  });
+
   it("starts hidden and toggles from the panel header", () => {
     expect(useSftpStore.getInitialState().showFileToolbar).toBe(false);
     useSftpStore.setState({ showFileToolbar: false });
@@ -143,6 +169,203 @@ describe("SFTP file toolbar visibility", () => {
 
     useSftpStore.getState().toggleFileToolbar();
     expect(useSftpStore.getState().showFileToolbar).toBe(false);
+  });
+});
+
+describe("SFTP terminal following", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [], activeTabId: null },
+        right: { tabs: [], activeTabId: null },
+      },
+      transfers: {},
+      deletions: {},
+    });
+    useTabsStore.setState({
+      tabs: [],
+      activeId: null,
+      lastPaneId: null,
+      pendingCloseId: null,
+      pendingWindowClose: false,
+    });
+  });
+
+  it("opens the current server instead of a local tab", () => {
+    useSftpStore.getState().followTerminal("left", {
+      id: "terminal-1",
+      hostId: "host-1",
+      title: "Production",
+      cwd: "/srv/app",
+      cwdConfirmed: true,
+    });
+
+    const pane = useSftpStore.getState().panes.left;
+    expect(pane.tabs).toHaveLength(1);
+    expect(pane.tabs[0]).toMatchObject({
+      kind: "remote",
+      hostId: "host-1",
+      title: "Production",
+      followedPaneId: "terminal-1",
+      followPath: "/srv/app",
+    });
+    expect(pane.activeTabId).toBe(pane.tabs[0]?.id);
+    expect(ipc.sftp.connect).toHaveBeenCalledWith(
+      pane.tabs[0]?.connectionId,
+      "host-1",
+    );
+    expect(ipc.sftp.home).not.toHaveBeenCalled();
+  });
+
+  it("closes the followed remote tab when its terminal closes", () => {
+    const terminalId = useTabsStore
+      .getState()
+      .openTerminal({ id: "host-1", label: "Production" });
+    expect(terminalId).not.toBeNull();
+    const remote = transferTab("remote-1", "connection-1", "/srv/app");
+    remote.hostId = "host-1";
+    remote.followedPaneId = terminalId!;
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [remote], activeTabId: remote.id },
+        right: { tabs: [], activeTabId: null },
+      },
+    });
+
+    useTabsStore.getState().close(terminalId!);
+
+    expect(useSftpStore.getState().panes.left).toEqual({
+      tabs: [],
+      activeTabId: null,
+    });
+    expect(ipc.sftp.disconnect).toHaveBeenCalledWith("connection-1");
+  });
+
+  it("keeps remote tabs that are not following the closed terminal", () => {
+    const terminalId = useTabsStore
+      .getState()
+      .openTerminal({ id: "host-1", label: "Production" });
+    expect(terminalId).not.toBeNull();
+    const remote = transferTab("remote-1", "connection-1", "/srv/app");
+    remote.hostId = "host-1";
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [remote], activeTabId: remote.id },
+        right: { tabs: [], activeTabId: null },
+      },
+    });
+
+    useTabsStore.getState().close(terminalId!);
+
+    expect(useSftpStore.getState().panes.left.tabs).toEqual([remote]);
+    expect(ipc.sftp.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("reuses the server tab and navigates to the terminal directory", async () => {
+    const remote = transferTab("remote-1", "connection-1", "/home/test");
+    remote.hostId = "host-1";
+    remote.followedPaneId = "terminal-1";
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [remote], activeTabId: remote.id },
+        right: { tabs: [], activeTabId: null },
+      },
+    });
+
+    useSftpStore.getState().followTerminal("left", {
+      id: "terminal-1",
+      hostId: "host-1",
+      title: "Production",
+      cwd: "/srv/app",
+      cwdConfirmed: false,
+    });
+
+    await vi.waitFor(() =>
+      expect(useSftpStore.getState().panes.left.tabs[0]?.cwd).toBe("/srv/app"),
+    );
+    expect(useSftpStore.getState().panes.left.tabs).toHaveLength(1);
+    expect(ipc.sftp.list).toHaveBeenCalledWith("connection-1", "/srv/app");
+  });
+
+  it("confirms an inferred terminal directory after SFTP loads it", async () => {
+    const terminalId = useTabsStore
+      .getState()
+      .openTerminal({ id: "host-1", label: "Production" });
+    expect(terminalId).not.toBeNull();
+    useTabsStore
+      .getState()
+      .setTerminalCwd(terminalId!, "/srv/app", "/home/test", false);
+
+    const remote = transferTab("remote-1", "connection-1", "/home/test");
+    remote.hostId = "host-1";
+    remote.followedPaneId = terminalId!;
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [remote], activeTabId: remote.id },
+        right: { tabs: [], activeTabId: null },
+      },
+    });
+
+    useSftpStore.getState().followTerminal("left", {
+      id: terminalId!,
+      hostId: "host-1",
+      title: "Production",
+      cwd: "/srv/app",
+      cwdConfirmed: false,
+    });
+
+    await vi.waitFor(() =>
+      expect(
+        findPane(useTabsStore.getState().tabs, terminalId!)?.cwdConfirmed,
+      ).toBe(true),
+    );
+  });
+
+  it("restores the previous directory when an inferred path does not exist", async () => {
+    const terminalId = useTabsStore
+      .getState()
+      .openTerminal({ id: "host-1", label: "Production" });
+    expect(terminalId).not.toBeNull();
+    useTabsStore
+      .getState()
+      .setTerminalCwd(terminalId!, "/missing", "/home/test", false);
+
+    const remote = transferTab("remote-1", "connection-1", "/home/test");
+    remote.hostId = "host-1";
+    remote.followedPaneId = terminalId!;
+    useSftpStore.setState({
+      panes: {
+        left: { tabs: [remote], activeTabId: remote.id },
+        right: { tabs: [], activeTabId: null },
+      },
+    });
+    vi.mocked(ipc.sftp.list).mockRejectedValueOnce({
+      code: "not_found",
+      message: "missing",
+    });
+
+    useSftpStore.getState().followTerminal("left", {
+      id: terminalId!,
+      hostId: "host-1",
+      title: "Production",
+      cwd: "/missing",
+      cwdConfirmed: false,
+    });
+
+    await vi.waitFor(() =>
+      expect(findPane(useTabsStore.getState().tabs, terminalId!)).toMatchObject(
+        {
+          cwd: "/home/test",
+          cwdConfirmed: true,
+        },
+      ),
+    );
+    expect(useSftpStore.getState().panes.left.tabs[0]).toMatchObject({
+      cwd: "/home/test",
+      error: undefined,
+      navigationPath: undefined,
+    });
   });
 });
 

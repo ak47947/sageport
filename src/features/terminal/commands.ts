@@ -30,16 +30,18 @@ export class CommandTracker {
     this.term = term;
   }
 
-  noteInput(data: string) {
-    if (data !== "\r" && data !== "\r\n") return;
+  noteInput(data: string): string | null {
+    if (data !== "\r" && data !== "\r\n") return null;
     const buf = this.term.buffer.active;
-    if (buf.type === "alternate") return;
+    if (buf.type === "alternate") return null;
     const cursorRow = buf.baseY + buf.cursorY;
     let startRow = cursorRow;
     while (startRow > 0 && buf.getLine(startRow)?.isWrapped) startRow--;
     const text = buf.getLine(startRow)?.translateToString(true) ?? "";
-    if (!extractCommand(text)) return;
+    const command = extractCommand(text);
+    if (!command) return null;
     this.track(startRow - cursorRow, text.trimEnd());
+    return command;
   }
 
   noteCommand(command: string) {

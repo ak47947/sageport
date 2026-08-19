@@ -4,6 +4,8 @@ import {
   EyeOff,
   History,
   Loader2,
+  List,
+  FolderTree,
   Search,
   SearchX,
   X,
@@ -20,6 +22,7 @@ import { useI18n } from "@/i18n";
 import { cn, formatBytes } from "@/lib/utils";
 import type { DeletePhase, TransferPhase } from "@/types/models";
 import { useLayoutStore } from "@/workbench/layout";
+import { activePane, findPane, useTabsStore } from "@/workbench/tabs";
 import {
   PanelHeader,
   PANEL_HEADER_ACTION_CLASS,
@@ -36,12 +39,19 @@ export function SftpPanel({ height }: { height: number }) {
   const { t } = useI18n();
   const ratio = useSftpStore((s) => s.ratio);
   const setRatio = useSftpStore((s) => s.setRatio);
-  const ensureLocalTab = useSftpStore((s) => s.ensureLocalTab);
+  const followTerminal = useSftpStore((s) => s.followTerminal);
+  const panes = useSftpStore((s) => s.panes);
   const showHidden = useSftpStore((s) => s.showHidden);
   const toggleHidden = useSftpStore((s) => s.toggleHidden);
   const showFileToolbar = useSftpStore((s) => s.showFileToolbar);
   const toggleFileToolbar = useSftpStore((s) => s.toggleFileToolbar);
+  const viewMode = useSftpStore((s) => s.viewMode);
+  const setViewMode = useSftpStore((s) => s.setViewMode);
   const setPanelVisible = useLayoutStore((s) => s.setPanelVisible);
+  const tabs = useTabsStore((s) => s.tabs);
+  const activeId = useTabsStore((s) => s.activeId);
+  const lastPaneId = useTabsStore((s) => s.lastPaneId);
+  const setTerminalCwd = useTabsStore((s) => s.setTerminalCwd);
   const [historyOpen, setHistoryOpen] = useState(false);
   const pendingConflict = useSftpStore((s) => s.pendingConflict);
   const resolveConflict = useSftpStore((s) => s.resolveConflict);
@@ -51,9 +61,47 @@ export function SftpPanel({ height }: { height: number }) {
 
   const bodyRef = useRef<HTMLDivElement>(null);
 
+  const activeEditor = tabs.find((tab) => tab.id === activeId);
+  const currentTerminal =
+    activeEditor?.kind === "terminal"
+      ? activePane(activeEditor)
+      : findPane(tabs, lastPaneId);
+
   useEffect(() => {
-    void ensureLocalTab("left");
-  }, [ensureLocalTab]);
+    if (
+      currentTerminal?.target !== "ssh" ||
+      currentTerminal.status !== "connected"
+    ) {
+      return;
+    }
+    followTerminal("left", {
+      id: currentTerminal.id,
+      hostId: currentTerminal.hostId,
+      title: currentTerminal.title,
+      cwd: currentTerminal.cwd,
+      cwdConfirmed: currentTerminal.cwdConfirmed,
+    });
+  }, [currentTerminal, followTerminal]);
+
+  useEffect(() => {
+    if (!currentTerminal || (currentTerminal.cwd && currentTerminal.home)) {
+      return;
+    }
+    const followed = [...panes.left.tabs, ...panes.right.tabs].find(
+      (tab) =>
+        tab.followedPaneId === currentTerminal.id &&
+        tab.status === "connected" &&
+        tab.home &&
+        (tab.cwd || currentTerminal.cwd),
+    );
+    if (followed) {
+      setTerminalCwd(
+        currentTerminal.id,
+        currentTerminal.cwd || followed.cwd,
+        followed.home,
+      );
+    }
+  }, [currentTerminal, panes, setTerminalCwd]);
 
   const bodyWidth = () => bodyRef.current?.getBoundingClientRect().width ?? 0;
 
@@ -82,6 +130,29 @@ export function SftpPanel({ height }: { height: number }) {
         title={t("sftp.panelTitle")}
         actions={
           <>
+            <Tooltip
+              content={t(
+                viewMode === "list" ? "sftp.viewAsTree" : "sftp.viewAsList",
+              )}
+            >
+              <Button
+                size="icon"
+                variant="ghost"
+                className={PANEL_HEADER_ACTION_CLASS}
+                aria-label={t(
+                  viewMode === "list" ? "sftp.viewAsTree" : "sftp.viewAsList",
+                )}
+                onClick={() =>
+                  setViewMode(viewMode === "list" ? "tree" : "list")
+                }
+              >
+                {viewMode === "list" ? (
+                  <FolderTree className="size-4" />
+                ) : (
+                  <List className="size-4" />
+                )}
+              </Button>
+            </Tooltip>
             <Tooltip content={t("sftp.toggleHidden")}>
               <Button
                 size="icon"
@@ -99,35 +170,37 @@ export function SftpPanel({ height }: { height: number }) {
                 )}
               </Button>
             </Tooltip>
-            <Tooltip
-              content={t(
-                showFileToolbar
-                  ? "sftp.hideSearchToolbar"
-                  : "sftp.showSearchToolbar",
-              )}
-            >
-              <Button
-                size="icon"
-                variant="ghost"
-                className={cn(
-                  PANEL_HEADER_ACTION_CLASS,
-                  showFileToolbar && "text-foreground",
-                )}
-                aria-label={t(
+            {viewMode === "list" && (
+              <Tooltip
+                content={t(
                   showFileToolbar
                     ? "sftp.hideSearchToolbar"
                     : "sftp.showSearchToolbar",
                 )}
-                aria-pressed={showFileToolbar}
-                onClick={toggleFileToolbar}
               >
-                {showFileToolbar ? (
-                  <Search className="size-4" />
-                ) : (
-                  <SearchX className="size-4" />
-                )}
-              </Button>
-            </Tooltip>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className={cn(
+                    PANEL_HEADER_ACTION_CLASS,
+                    showFileToolbar && "text-foreground",
+                  )}
+                  aria-label={t(
+                    showFileToolbar
+                      ? "sftp.hideSearchToolbar"
+                      : "sftp.showSearchToolbar",
+                  )}
+                  aria-pressed={showFileToolbar}
+                  onClick={toggleFileToolbar}
+                >
+                  {showFileToolbar ? (
+                    <Search className="size-4" />
+                  ) : (
+                    <SearchX className="size-4" />
+                  )}
+                </Button>
+              </Tooltip>
+            )}
             <Tooltip content={t("sftp.history.title")}>
               <Button
                 size="icon"

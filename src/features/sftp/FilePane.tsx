@@ -54,6 +54,7 @@ import {
   WORKBENCH_TAB_INACTIVE_CLASS,
 } from "@/workbench/tab-styles";
 import { FileList } from "./FileList";
+import { FileTree } from "./FileTree";
 import { BookmarkMenu } from "./BookmarkMenu";
 import { DEFAULT_FILE_SORT, type FileSort } from "./file-list-layout";
 import { PermissionsDialog } from "./PermissionsDialog";
@@ -93,6 +94,7 @@ export function FilePane({ side }: { side: PaneSide }) {
   const refresh = useSftpStore((s) => s.refresh);
   const applyStatus = useSftpStore((s) => s.applyStatus);
   const deleteEntries = useSftpStore((s) => s.deleteEntries);
+  const viewMode = useSftpStore((s) => s.viewMode);
   const { data: hosts = [] } = useHosts();
 
   const tabStripRef = useRef<HTMLDivElement>(null);
@@ -524,19 +526,34 @@ export function FilePane({ side }: { side: PaneSide }) {
               />
             </div>
 
-            <FileList
-              key={`${active.id}:${active.cwd}`}
-              side={side}
-              tab={active}
-              creating={creating}
-              onCreate={(name) => onCreate(active, creating!, name)}
-              onCancelCreate={() => setCreation(null)}
-              onRename={(entry, name) => onRename(active, entry, name)}
-              onDelete={(entries) => confirmDelete(active, entries)}
-              onPermissions={(entry) => setPermTarget({ tab: active, entry })}
-              sort={sort}
-              onSortChange={setSort}
-            />
+            {viewMode === "tree" ? (
+              <FileTree
+                key={`${active.id}:${active.treeRevision ?? 0}`}
+                side={side}
+                tab={active}
+                creating={creating}
+                onCreate={(name) => onCreate(active, creating!, name)}
+                onCancelCreate={() => setCreation(null)}
+                onRename={(entry, name) => onRename(active, entry, name)}
+                onDelete={(entries) => confirmDelete(active, entries)}
+                onPermissions={(entry) => setPermTarget({ tab: active, entry })}
+                sort={sort}
+              />
+            ) : (
+              <FileList
+                key={`${active.id}:${active.cwd}`}
+                side={side}
+                tab={active}
+                creating={creating}
+                onCreate={(name) => onCreate(active, creating!, name)}
+                onCancelCreate={() => setCreation(null)}
+                onRename={(entry, name) => onRename(active, entry, name)}
+                onDelete={(entries) => confirmDelete(active, entries)}
+                onPermissions={(entry) => setPermTarget({ tab: active, entry })}
+                sort={sort}
+                onSortChange={setSort}
+              />
+            )}
           </TabsContent>
         ) : (
           <div className="flex flex-1 overflow-hidden">

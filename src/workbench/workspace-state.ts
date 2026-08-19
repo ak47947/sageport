@@ -167,6 +167,9 @@ export function writeWorkspace(
           status: _status,
           error: _error,
           errorCode: _errorCode,
+          cwd: _cwd,
+          home: _home,
+          cwdConfirmed: _cwdConfirmed,
           attempt: _attempt,
           restorePending: _restorePending,
           ...pane
