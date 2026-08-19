@@ -21,7 +21,7 @@ const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_SAFE_INTEGER: u64 = (1u64 << 53) - 1;
 const MAX_OS_NAME_CHARS: usize = 256;
 
-const STATS_COMMAND: &str = "cat /proc/loadavg 2>/dev/null; echo ---; \
+const STATS_COMMAND: &str = "export LC_ALL=C; cat /proc/loadavg 2>/dev/null; echo ---; \
 free -b 2>/dev/null; echo ---; df -kP / 2>/dev/null; echo ---; nproc 2>/dev/null; echo ---; \
 cat /proc/uptime 2>/dev/null; echo ---; cat /etc/os-release 2>/dev/null; echo ---; \
 cat /proc/net/dev 2>/dev/null";
@@ -89,6 +89,16 @@ fn parse_counter(value: &str) -> Option<u64> {
     (value <= MAX_SAFE_INTEGER).then_some(value)
 }
 
+fn parse_memory(section: &str) -> Option<(u64, u64)> {
+    section.lines().find_map(|line| {
+        let mut columns = line.split_whitespace();
+        columns.next()?;
+        let total = parse_counter(columns.next()?)?;
+        let used = parse_counter(columns.next()?)?;
+        (total > 0).then_some((total, used))
+    })
+}
+
 fn parse_net_dev(section: &str) -> Option<NetTotals> {
     let mut rx = 0u64;
     let mut tx = 0u64;
@@ -129,20 +139,7 @@ pub fn parse_stats(output: &str) -> Option<Sample> {
         return None;
     }
 
-    let mut mem_total = 0u64;
-    let mut mem_used = 0u64;
-    for line in sections[1].lines() {
-        let mut cols = line.split_whitespace();
-        if cols.next() == Some("Mem:") {
-            let total = parse_counter(cols.next()?)?;
-            let used = parse_counter(cols.next()?)?;
-            mem_total = total;
-            mem_used = used;
-        }
-    }
-    if mem_total == 0 {
-        return None;
-    }
+    let (mem_total, mem_used) = parse_memory(sections[1])?;
 
     let disk_line = sections[2]
         .lines()
@@ -409,6 +406,15 @@ Inter-|   Receive                                                |  Transmit\n\
                 tx: 3500000
             })
         );
+    }
+
+    #[test]
+    fn parses_localized_memory_stats() {
+        let section = "               total        used        free      shared  buff/cache   available\n\
+内存：    8326443008  4116000768   608530432   148353024  4066963456  4210442240\n\
+交换：    1022357504   176947200   845410304\n";
+
+        assert_eq!(parse_memory(section), Some((8326443008, 4116000768)));
     }
 
     #[test]
