@@ -38,7 +38,7 @@ fn reapply_dev_dock_icon() {
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
-    const DOCK_ICON: &[u8] = include_bytes!("../icons/128x128@2x.png");
+    const DOCK_ICON: &[u8] = include_bytes!("../icons/icon.icns");
     let Some(mtm) = MainThreadMarker::new() else {
         return;
     };
