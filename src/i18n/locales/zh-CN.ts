@@ -239,6 +239,12 @@ export const zhCN: Dictionary = {
     newSession: "新建会话",
     tabList: "已打开的会话",
     closeTab: "关闭标签页",
+    tabMenu: {
+      close: "关闭",
+      closeOthers: "关闭其他",
+      closeRight: "关闭右侧标签",
+      closeAll: "关闭全部",
+    },
     tabLimitReached: "最多可打开 {count} 个终端会话",
     fileTabLimitReached: "最多可打开 {count} 个文件",
     unsavedTitle: "保存更改？",

@@ -126,6 +126,8 @@ Windows 和 Linux 上，把 <kbd>⌘</kbd> 读作 <kbd>Ctrl</kbd>。
 需要 [Node.js](https://nodejs.org) 与 [pnpm](https://pnpm.io)、[Rust 工具链](https://rustup.rs)，以及对应平台的 [Tauri 2 前置依赖](https://tauri.app/start/prerequisites/)。
 
 ```sh
+nvm use 22.14.0
+
 pnpm install
 pnpm tauri dev     # 开发模式运行
 pnpm tauri build   # 打包发布版本
@@ -134,6 +136,17 @@ pnpm tauri build   # 打包发布版本
 `pnpm test` 运行前端测试；在 `src-tauri` 目录下 `cargo test` 运行后端测试。
 
 技术栈：Rust 内核（russh、sqlx + SQLite、tokio）加 React 19 + TypeScript 工作台（xterm.js、Monaco、Tailwind），由 Tauri 2 打包。
+
+## CI 发布
+
+推送 `v*.*.*` 格式的 tag 会触发 GitHub Actions 自动构建全平台安装包并发布 Release：
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+也可以用 `pnpm release` 交互式升版本号、打 tag 并推送，效果相同。
 
 ## 许可证
 

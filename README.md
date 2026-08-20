@@ -135,6 +135,17 @@ pnpm tauri build   # produce a release bundle
 
 Under the hood: a Rust core (russh, SQLite via sqlx, tokio) behind a React 19 + TypeScript workbench (xterm.js, Monaco, Tailwind), packaged with Tauri 2.
 
+## CI release
+
+Pushing a tag matching `v*.*.*` triggers GitHub Actions to build installers for all platforms and publish a Release:
+
+```sh
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Or use `pnpm release` to interactively bump the version, tag, and push in one step.
+
 ## License
 
 [GPL-3.0-only](LICENSE)
