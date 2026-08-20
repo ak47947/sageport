@@ -6,6 +6,8 @@ dist
 *.local
 
 .updater-key-DO-NOT-COMMIT
+tauri.key
+tauri.key.pub
 
 .vscode/*
 !.vscode/extensions.json

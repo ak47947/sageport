@@ -50,9 +50,9 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGQjU3OUU2NzUxOTlGREIKUldUYm54bDE1bm0xNzg1T1REcFZwRFl4a1l2OXNCSnRWazVRLzRMazVoMG9MbW1ydkRoSXp4dE8K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQxNzhEMURGMTY1M0E0NDcKUldSSHBGTVczOUY0UWNqT1Bvb2k4UEVhZVdjUWF0S1ZaeXpnVzNkYWlPUjYzaWhJQ2FNdTJ2THkK",
       "endpoints": [
-        "https://github.com/joygqz/sageport/releases/latest/download/latest.json"
+        "https://github.com/ak47947/sageport/releases/latest/download/latest.json"
       ]
     }
   }
