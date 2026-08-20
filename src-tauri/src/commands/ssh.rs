@@ -194,13 +194,8 @@ pub async fn ssh_test_connection(
         let host = connection_test_host(Some(host_id), input, saved_password)?;
         let hops = build_hops(&state, &host).await?;
         let session_id = format!("connection-test-{request_id}");
-        let connection = crate::ssh::establish(
-            &app,
-            &state.connection_prompts,
-            &session_id,
-            &hops,
-        )
-        .await?;
+        let connection =
+            crate::ssh::establish(&app, &state.connection_prompts, &session_id, &hops).await?;
         drop(connection);
         Ok(())
     };
@@ -481,12 +476,8 @@ mod tests {
             password: None,
         };
 
-        let host = connection_test_host(
-            Some("host-1".into()),
-            input,
-            Some("saved-secret".into()),
-        )
-        .unwrap();
+        let host = connection_test_host(Some("host-1".into()), input, Some("saved-secret".into()))
+            .unwrap();
 
         assert_eq!(host.id, "host-1");
         assert_eq!(host.password.as_deref(), Some("saved-secret"));

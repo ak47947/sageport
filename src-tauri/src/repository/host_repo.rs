@@ -676,9 +676,7 @@ mod tests {
         source_input.password = Some("secret".into());
         let source = create(&pool, source_input).await.unwrap();
 
-        let copy = duplicate(&pool, &source.id, "Copy".into())
-            .await
-            .unwrap();
+        let copy = duplicate(&pool, &source.id, "Copy".into()).await.unwrap();
 
         assert_ne!(copy.id, source.id);
         assert_eq!(copy.label, "production - Copy");

@@ -410,7 +410,8 @@ Inter-|   Receive                                                |  Transmit\n\
 
     #[test]
     fn parses_localized_memory_stats() {
-        let section = "               total        used        free      shared  buff/cache   available\n\
+        let section =
+            "               total        used        free      shared  buff/cache   available\n\
 内存：    8326443008  4116000768   608530432   148353024  4066963456  4210442240\n\
 交换：    1022357504   176947200   845410304\n";
 
