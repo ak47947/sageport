@@ -88,6 +88,8 @@ jobs:
           - platform: windows-latest
 
     runs-on: ${{ matrix.platform }}
+    env:
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -101,17 +103,15 @@ jobs:
           rust-targets: ${{ matrix.rust-targets }}
 
       - name: Import Apple Developer certificate
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
         shell: bash
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           for name in \
-            APPLE_CERTIFICATE \
             APPLE_CERTIFICATE_PASSWORD \
             APPLE_ID \
             APPLE_PASSWORD \
@@ -156,6 +156,13 @@ jobs:
             printf 'APPLE_PASSWORD=%s\n' "$APPLE_PASSWORD"
             printf 'APPLE_TEAM_ID=%s\n' "$APPLE_TEAM_ID"
           } >> "$GITHUB_ENV"
+
+      - name: Configure unsigned macOS build
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE == ''
+        shell: bash
+        run: |
+          echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+          echo "::warning::APPLE_CERTIFICATE secret is not set; the macOS app will be signed ad-hoc and skip notarization"
 
       - name: Build and publish
         uses: tauri-apps/tauri-action@v1
