@@ -21,6 +21,7 @@ const GLYPH_VIEWBOX = "212 212 600 600";
 const MACOS_ICON_INSET = 100;
 const MACOS_ICON_SIZE = 824;
 const MACOS_ICON_RADIUS = 185;
+const WINDOWS_ICON_RADIUS = 185;
 const TRAY_SIZE = 32;
 const MACOS_TRAY_SIZE = 36;
 const PUBLIC_LOGO_SIZE = 256;
@@ -40,6 +41,7 @@ const fullSvg = readFileSync(source, "utf8");
 const glyphSvg = toGlyphSvg(fullSvg);
 const templateSvg = glyphSvg.replace(/#[0-9a-fA-F]{3,8}\b/g, "#000000");
 const macosSvg = toMacosSvg(fullSvg);
+const windowsSvg = toWindowsSvg(fullSvg);
 
 function toGlyphSvg(svg) {
   const withoutBg = svg.replace(/[ \t]*<[^>]*\bid="bg"[^>]*>\n?/, "");
@@ -48,6 +50,15 @@ function toGlyphSvg(svg) {
   return withoutBg.replace(
     /<svg\b[^>]*>/,
     `<svg width="${size}" height="${size}" viewBox="${GLYPH_VIEWBOX}" fill="none" xmlns="http://www.w3.org/2000/svg">`,
+  );
+}
+
+function toWindowsSvg(svg) {
+  const background = new RegExp(`<rect\\s+id="bg"[^>]*/>`);
+  if (!background.test(svg))
+    fail(`no self-closing background with id="bg" in ${source}`);
+  return svg.replace(background, (element) =>
+    element.replace(/\/>$/, ` rx="${WINDOWS_ICON_RADIUS}"/>`),
   );
 }
 
@@ -98,6 +109,25 @@ try {
   });
   copyFileSync(join(macosDir, "icon.icns"), join(outDir, "icon.icns"));
   log("macOS safe area → src-tauri/icons/icon.icns");
+
+  const windowsDir = join(tmp, "windows");
+  const windowsPath = join(tmp, "windows.svg");
+  writeFileSync(windowsPath, windowsSvg);
+  execFileSync("pnpm", ["tauri", "icon", windowsPath, "--output", windowsDir], {
+    stdio: "inherit",
+    cwd: root,
+  });
+  for (const name of [
+    "icon.ico",
+    "icon.png",
+    "32x32.png",
+    "64x64.png",
+    "128x128.png",
+    "128x128@2x.png",
+  ]) {
+    copyFileSync(join(windowsDir, name), join(outDir, name));
+  }
+  log("rounded Windows icons → src-tauri/icons/{icon.ico, icon.png, *.png}");
 
   copyFileSync(
     rasterize(glyphSvg, "tray", TRAY_SIZE),
