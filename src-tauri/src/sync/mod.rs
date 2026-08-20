@@ -82,7 +82,11 @@ impl VaultSnapshot {
                 + self.sftp_bookmarks.len(),
         );
         out.extend(self.groups.iter().map(|value| fingerprint("g", value)));
-        out.extend(self.hosts.iter().map(|value| fingerprint("h", value)));
+        out.extend(self.hosts.iter().map(|value| {
+            let mut value = value.clone();
+            value.last_used_at = None;
+            fingerprint("h", &value)
+        }));
         out.extend(self.identities.iter().map(|value| fingerprint("i", value)));
         out.extend(self.keys.iter().map(|value| fingerprint("k", value)));
         out.extend(self.snippets.iter().map(|value| fingerprint("s", value)));
@@ -1081,6 +1085,36 @@ mod tests {
         );
         second.groups[0].name = first.groups[0].name.clone();
         second.exported_at = "2100-02-02T00:00:00+00:00".into();
+        assert_eq!(first.content_fingerprint(), second.content_fingerprint());
+    }
+
+    #[test]
+    fn fingerprint_ignores_host_last_used_at() {
+        let mut first = empty_snapshot(Vec::new());
+        first.hosts.push(Host {
+            id: "host-1".into(),
+            label: "web".into(),
+            address: "web.example.com".into(),
+            port: 22,
+            group_id: None,
+            identity_id: None,
+            username: Some("root".into()),
+            auth_type: None,
+            key_id: None,
+            os_hint: None,
+            notes: None,
+            password: None,
+            jump_host_id: None,
+            startup_command: None,
+            last_used_at: Some(BACKUP_TIMESTAMP.into()),
+            created_at: BACKUP_TIMESTAMP.into(),
+            updated_at: BACKUP_TIMESTAMP.into(),
+            deleted_at: None,
+            revision: 1,
+        });
+        let mut second = first.clone();
+        second.hosts[0].last_used_at = Some("2026-08-20T00:00:00+00:00".into());
+
         assert_eq!(first.content_fingerprint(), second.content_fingerprint());
     }
 
