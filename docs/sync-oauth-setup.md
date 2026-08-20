@@ -11,7 +11,20 @@ export SAGEPORT_MS_CLIENT_ID="00000000-0000-0000-0000-000000000000"
 pnpm tauri build
 ```
 
-如果某个服务商缺少客户端 ID，应用仍可正常构建和运行，但该服务商的授权登录按钮会被禁用，并指向本文档。
+在 Windows PowerShell 中，必须在运行构建命令的同一个窗口中设置环境变量：
+
+```powershell
+$env:SAGEPORT_GITHUB_CLIENT_ID="Iv1.xxxxxxxx"
+$env:SAGEPORT_GOOGLE_CLIENT_ID="xxxx.apps.googleusercontent.com"
+$env:SAGEPORT_GOOGLE_CLIENT_SECRET="GOCSPX-xxxx"
+$env:SAGEPORT_MS_CLIENT_ID="00000000-0000-0000-0000-000000000000"
+
+pnpm tauri build
+```
+
+通过 GitHub Actions 发布时，在仓库的 **Settings → Secrets and variables → Actions → Repository secrets** 中添加同名 Secret。发布工作流只会读取 Repository secrets；修改 Secret 后必须创建新版本并重新构建，已有安装包不会发生变化。
+
+如果某个服务商缺少所需的 OAuth 凭据，应用仍可正常构建和运行，但该服务商的授权登录按钮会被禁用，并指向本文档。
 
 ## GitHub（设备授权流程）
 

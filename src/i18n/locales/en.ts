@@ -1222,7 +1222,7 @@ export const en = {
       setup: {
         oauthSignIn: "Sign in with {name}",
         oauthUnavailable:
-          "{name} sign-in isn't available because this build has no OAuth client ID.",
+          "This build doesn't include the OAuth credentials required to sign in with {name}.",
         oauthError: "Authorization failed",
         deviceCodeHint: "Enter this code on GitHub to authorize Sageport.",
         openPageButton: "Open GitHub",

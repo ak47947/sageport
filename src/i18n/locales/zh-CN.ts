@@ -1191,7 +1191,7 @@ export const zhCN: Dictionary = {
       },
       setup: {
         oauthSignIn: "使用 {name} 登录",
-        oauthUnavailable: "此版本未配置 {name} 的 OAuth 客户端 ID，无法登录。",
+        oauthUnavailable: "此版本未包含使用 {name} 登录所需的 OAuth 凭据。",
         oauthError: "授权失败",
         deviceCodeHint: "在 GitHub 中输入此代码以授权 Sageport。",
         openPageButton: "打开 GitHub",

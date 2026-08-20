@@ -164,6 +164,24 @@ jobs:
           echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
           echo "::warning::APPLE_CERTIFICATE secret is not set; the macOS app will be signed ad-hoc and skip notarization"
 
+      - name: Check OAuth configuration
+        shell: bash
+        env:
+          SAGEPORT_GITHUB_CLIENT_ID: ${{ secrets.SAGEPORT_GITHUB_CLIENT_ID }}
+          SAGEPORT_GOOGLE_CLIENT_ID: ${{ secrets.SAGEPORT_GOOGLE_CLIENT_ID }}
+          SAGEPORT_GOOGLE_CLIENT_SECRET: ${{ secrets.SAGEPORT_GOOGLE_CLIENT_SECRET }}
+          SAGEPORT_MS_CLIENT_ID: ${{ secrets.SAGEPORT_MS_CLIENT_ID }}
+        run: |
+          if [[ -z "$SAGEPORT_GITHUB_CLIENT_ID" ]]; then
+            echo "::warning::SAGEPORT_GITHUB_CLIENT_ID is not set; GitHub Gist sync will be unavailable"
+          fi
+          if [[ -z "$SAGEPORT_GOOGLE_CLIENT_ID" || -z "$SAGEPORT_GOOGLE_CLIENT_SECRET" ]]; then
+            echo "::warning::SAGEPORT_GOOGLE_CLIENT_ID or SAGEPORT_GOOGLE_CLIENT_SECRET is not set; Google Drive sync will be unavailable"
+          fi
+          if [[ -z "$SAGEPORT_MS_CLIENT_ID" ]]; then
+            echo "::warning::SAGEPORT_MS_CLIENT_ID is not set; OneDrive sync will be unavailable"
+          fi
+
       - name: Build and publish
         uses: tauri-apps/tauri-action@v1
         env:
