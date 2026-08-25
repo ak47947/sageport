@@ -4,12 +4,18 @@ import { X } from "lucide-react";
 
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { GHOST_ICON_BUTTON_CLASS } from "./styles";
 
 export const DIALOG_OVERLAY_CLASS =
-  "fixed inset-0 z-50 bg-black/35 backdrop-blur-[1px] dark:bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0";
+  "fixed inset-0 z-50 bg-black/35 dark:bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0";
+
+export const DIALOG_VIEWPORT_CLASS =
+  "pointer-events-none fixed inset-0 z-50 grid place-items-center p-4";
 
 export const DIALOG_CONTENT_CLASS =
-  "fixed left-1/2 top-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg gap-[var(--content-gap)] overscroll-contain rounded-lg border border-border-strong bg-popover p-[var(--dialog-padding)] text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95";
+  "pointer-events-auto relative grid max-h-[calc(100dvh-2rem)] w-full max-w-lg gap-[var(--content-gap)] overscroll-contain rounded-lg border border-border-strong bg-popover p-[var(--dialog-padding)] text-popover-foreground data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0";
+
+const DIALOG_CLOSE_CLASS = cn(GHOST_ICON_BUTTON_CLASS, "shrink-0");
 
 function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -112,29 +118,30 @@ function DialogContent({
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        ref={setRefs}
-        data-slot="dialog-content"
-        onPointerDown={onPointerDown}
-
-        style={{
-          translate: `calc(-50% + ${offset.x}px) calc(-50% + ${offset.y}px)`,
-        }}
-        className={cn(
-          DIALOG_CONTENT_CLASS,
-          scrollMode === "dialog" ? "overflow-y-auto" : "overflow-hidden",
-          className,
-        )}
-        {...props}
-      >
-        {children}
-        {showClose && (
-          <DialogPrimitive.Close className="absolute right-3 top-3 flex size-[var(--toolbar-control-size)] items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
-            <X aria-hidden="true" className="size-4" />
-            <span className="sr-only">{t("common.close")}</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
+      <div data-slot="dialog-viewport" className={DIALOG_VIEWPORT_CLASS}>
+        <DialogPrimitive.Content
+          ref={setRefs}
+          data-slot="dialog-content"
+          onPointerDown={onPointerDown}
+          style={{ translate: `${offset.x}px ${offset.y}px` }}
+          className={cn(
+            DIALOG_CONTENT_CLASS,
+            scrollMode === "dialog" ? "overflow-y-auto" : "overflow-hidden",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          {showClose && (
+            <DialogPrimitive.Close
+              className={cn("absolute right-3 top-3", DIALOG_CLOSE_CLASS)}
+            >
+              <X aria-hidden="true" className="size-4" />
+              <span className="sr-only">{t("common.close")}</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </div>
     </DialogPortal>
   );
 }
@@ -164,7 +171,7 @@ function DialogToolbar({
     <div
       data-slot="dialog-toolbar"
       className={cn(
-        "flex h-[var(--workbench-bar-height)] shrink-0 items-center gap-2 border-b border-border-subtle bg-surface/70 pr-2",
+        "flex h-[var(--workbench-bar-height)] shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-sunken pr-2",
         leading ? "pl-2" : "pl-4",
         className,
       )}
@@ -173,7 +180,7 @@ function DialogToolbar({
       {leading}
       <DialogTitle className="min-w-0 flex-1 truncate">{children}</DialogTitle>
       {actions}
-      <DialogPrimitive.Close className="flex size-[var(--toolbar-control-size)] shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+      <DialogPrimitive.Close className={DIALOG_CLOSE_CLASS}>
         <X aria-hidden="true" className="size-4" />
         <span className="sr-only">{t("common.close")}</span>
       </DialogPrimitive.Close>

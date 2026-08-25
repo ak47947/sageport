@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { ipc } from "@/lib/ipc";
 import type { HostKeyDecision, HostKeyEvent } from "@/types/models";
+import { recoverPendingPrompts } from "./prompt-recovery";
 
 interface HostKeyState {
   queue: HostKeyEvent[];
@@ -50,27 +51,36 @@ export const useHostKeyStore = create<HostKeyState>((set, get) => ({
 export async function listenHostKeyEvents(): Promise<() => void> {
   let syncing = true;
   const closedDuringSync = new Set<string>();
-  const [unlistenPrompt, unlistenClosed] = await Promise.all([
-    ipc.ssh.onHostKey((event) => useHostKeyStore.getState().push(event)),
-    ipc.ssh.onHostKeyClosed((event) => {
+  const unlistenPrompt = await ipc.ssh.onHostKey((event) =>
+    useHostKeyStore.getState().push(event),
+  );
+  let unlistenClosed: (() => void) | undefined;
+  try {
+    unlistenClosed = await ipc.ssh.onHostKeyClosed((event) => {
       if (syncing) closedDuringSync.add(event.promptId);
       useHostKeyStore.getState().dismiss(event.promptId);
-    }),
-  ]);
+    });
+  } catch (error) {
+    unlistenPrompt();
+    throw error;
+  }
   try {
-    const pending = await ipc.ssh.pendingHostKeys();
-    for (const event of pending) {
-      if (!closedDuringSync.has(event.promptId)) {
-        useHostKeyStore.getState().push(event);
-      }
-    }
-  } catch {
+    await recoverPendingPrompts(
+      () => ipc.ssh.pendingHostKeys(),
+      (event) => {
+        if (!closedDuringSync.has(event.promptId)) {
+          useHostKeyStore.getState().push(event);
+        }
+      },
+      (error) =>
+        console.warn("Failed to recover pending host key prompts:", error),
+    );
   } finally {
     syncing = false;
   }
   return () => {
     unlistenPrompt();
-    unlistenClosed();
+    unlistenClosed?.();
   };
 }
 

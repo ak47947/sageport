@@ -5,6 +5,7 @@ import type { ForwardStatusEvent } from "@/types/models";
 const mocks = vi.hoisted(() => ({
   runtime: vi.fn(),
   onStatus: vi.fn(),
+  unlisten: vi.fn(),
   handler: undefined as ((event: ForwardStatusEvent) => void) | undefined,
 }));
 
@@ -22,14 +23,12 @@ import { bridgeForwardEvents, useForwardStore } from "./store";
 function event(
   status: ForwardStatusEvent["status"],
   sequence: number,
-  publicBindRestricted = false,
 ): ForwardStatusEvent {
   return {
     forwardId: "forward",
     status,
     generation: 1,
     sequence,
-    publicBindRestricted,
   };
 }
 
@@ -38,6 +37,19 @@ describe("forward runtime state", () => {
     useForwardStore.setState({ runtime: {} });
     mocks.onStatus.mockRejectedValueOnce(new Error("listen failed"));
     await expect(bridgeForwardEvents()).rejects.toThrow("listen failed");
+
+    mocks.onStatus.mockImplementationOnce(
+      async (handler: (next: ForwardStatusEvent) => void) => {
+        mocks.handler = handler;
+        return mocks.unlisten;
+      },
+    );
+    mocks.runtime.mockRejectedValueOnce(new Error("snapshot failed"));
+    mocks.unlisten.mockImplementationOnce(() => {
+      throw new Error("cleanup failed");
+    });
+    await expect(bridgeForwardEvents()).rejects.toThrow("snapshot failed");
+    expect(mocks.unlisten).toHaveBeenCalledOnce();
 
     let resolveSnapshot: ((events: ForwardStatusEvent[]) => void) | undefined;
     mocks.onStatus.mockImplementation(
@@ -60,14 +72,16 @@ describe("forward runtime state", () => {
     await bridge;
 
     expect(useForwardStore.getState().runtime.forward?.status).toBe("active");
-    useForwardStore.getState().apply(event("active", 3, true));
-    expect(
-      useForwardStore.getState().runtime.forward?.publicBindRestricted,
-    ).toBe(true);
-    expect(mocks.onStatus).toHaveBeenCalledTimes(2);
+    useForwardStore.getState().apply(event("reconnecting", 3));
+    expect(useForwardStore.getState().runtime.forward?.status).toBe(
+      "reconnecting",
+    );
+    expect(mocks.onStatus).toHaveBeenCalledTimes(3);
 
     useForwardStore.getState().apply(event("stopped", 1));
-    expect(useForwardStore.getState().runtime.forward?.status).toBe("active");
+    expect(useForwardStore.getState().runtime.forward?.status).toBe(
+      "reconnecting",
+    );
     useForwardStore.getState().remove("forward");
     expect(useForwardStore.getState().runtime.forward).toBeUndefined();
   });

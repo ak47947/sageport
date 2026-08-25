@@ -10,15 +10,29 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { FileText, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  CircleX,
+  FileText,
+  PlugZap,
+  Plus,
+  Save,
+  SquareSplitHorizontal,
+  SquareSplitVertical,
+  SquareX,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 
-import { type ConfirmState } from "@/components/ui/confirm-dialog";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+  INTERACTIVE_FOCUS_CLASS,
+} from "@/components/ui";
+import { type ConfirmState } from "@/components/ui/confirm-dialog";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Kbd } from "@/components/ui/kbd";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -98,6 +112,9 @@ export const EditorArea = memo(function EditorArea() {
     activeTab?.kind === "terminal" ? activeTab.activePaneId : null;
   const stripRef = useRef<HTMLDivElement>(null);
   const preserveTabFocusRef = useRef(false);
+  const suppressPaneFocusRef = useRef(false);
+  const bulkCloseQueueRef = useRef<string[] | null>(null);
+  const bulkClosePendingRef = useRef<string | null>(null);
   const [dragState, setDragState] = useState<TabDragState | null>(null);
   const isDragging = dragState !== null;
   const dropIndexRef = useRef<number | null>(null);
@@ -201,6 +218,57 @@ export const EditorArea = memo(function EditorArea() {
     });
   };
 
+  const processBulkClose = () => {
+    const queue = bulkCloseQueueRef.current;
+    if (!queue) return;
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      const tab = useTabsStore.getState().tabs.find((item) => item.id === id);
+      if (!tab) continue;
+      useTabsStore.getState().close(id);
+      if (useTabsStore.getState().pendingCloseId === id) {
+        bulkClosePendingRef.current = id;
+        return;
+      }
+    }
+    bulkCloseQueueRef.current = null;
+    bulkClosePendingRef.current = null;
+  };
+
+  const closeOtherTabs = (id: string) => {
+    bulkCloseQueueRef.current = tabs
+      .filter((tab) => tab.id !== id)
+      .map((tab) => tab.id);
+    processBulkClose();
+  };
+
+  const closeAllTabs = () => {
+    bulkCloseQueueRef.current = tabs.map((tab) => tab.id);
+    processBulkClose();
+  };
+
+  useEffect(() => {
+    if (pendingCloseId !== null) return;
+    const queue = bulkCloseQueueRef.current;
+    if (!queue || queue.length === 0) return;
+    const pendingId = bulkClosePendingRef.current;
+    bulkClosePendingRef.current = null;
+    if (
+      pendingId &&
+      useTabsStore.getState().tabs.some((tab) => tab.id === pendingId)
+    ) {
+      bulkCloseQueueRef.current = null;
+      return;
+    }
+    processBulkClose();
+  }, [pendingCloseId, tabs]);
+
+  const handleTabMenuOpen = (id: string) => {
+    if (id === activeId) return;
+    suppressPaneFocusRef.current = true;
+    setActive(id);
+  };
+
   const draggedTab = dragState
     ? tabs.find((tab) => tab.id === dragState.id)
     : undefined;
@@ -282,13 +350,32 @@ export const EditorArea = memo(function EditorArea() {
     stripRef.current
       ?.querySelector(`[data-tab-id="${CSS.escape(activeId)}"]`)
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    if (preserveTabFocusRef.current) {
+    if (preserveTabFocusRef.current || suppressPaneFocusRef.current) {
       preserveTabFocusRef.current = false;
+      suppressPaneFocusRef.current = false;
       return;
     }
     if (activePaneId) focusTerminal(activePaneId);
     else focusFileEditor(activeId);
   }, [activeId, activePaneId]);
+
+  useEffect(() => {
+    const tabStrip = stripRef.current;
+    if (!tabStrip) return;
+    const handleWheel = (event: WheelEvent) => {
+      if (
+        tabStrip.scrollWidth <= tabStrip.clientWidth ||
+        event.deltaX !== 0 ||
+        event.deltaY === 0
+      ) {
+        return;
+      }
+      event.preventDefault();
+      tabStrip.scrollLeft += event.deltaY;
+    };
+    tabStrip.addEventListener("wheel", handleWheel, { passive: false });
+    return () => tabStrip.removeEventListener("wheel", handleWheel);
+  }, [tabs.length]);
 
   if (tabs.length === 0) return <Watermark />;
 
@@ -306,13 +393,6 @@ export const EditorArea = memo(function EditorArea() {
         <div className="relative shrink-0 bg-surface">
           <div
             ref={stripRef}
-            onWheel={(e) => {
-              const el = stripRef.current;
-              if (!el || el.scrollWidth <= el.clientWidth || e.deltaX !== 0) {
-                return;
-              }
-              el.scrollLeft += e.deltaY;
-            }}
             className={cn(
               "scrollbar-none flex h-[var(--workbench-bar-height)] gap-1 overflow-x-auto overflow-y-hidden",
               WORKBENCH_TAB_STRIP_GUTTER_CLASS,
@@ -329,25 +409,10 @@ export const EditorArea = memo(function EditorArea() {
                   active={tab.id === activeId}
                   dragged={dragState?.id === tab.id}
                   onClose={() => close(tab.id)}
-                  onCloseOthers={() => {
-                    for (const other of tabs) {
-                      if (other.id !== tab.id) close(other.id);
-                    }
-                  }}
-                  onCloseRight={() => {
-                    const index = tabs.findIndex((item) => item.id === tab.id);
-                    for (const other of tabs.slice(index + 1)) {
-                      close(other.id);
-                    }
-                  }}
-                  onCloseAll={() => {
-                    for (const item of tabs) close(item.id);
-                  }}
-                  hasOtherTabs={tabs.length > 1}
-                  hasTabsToRight={
-                    tabs.findIndex((item) => item.id === tab.id) <
-                    tabs.length - 1
-                  }
+                  onCloseOthers={() => closeOtherTabs(tab.id)}
+                  onCloseAll={closeAllTabs}
+                  canCloseOthers={tabs.length > 1}
+                  onMenuOpen={() => handleTabMenuOpen(tab.id)}
                   onDragStart={(pointer) => handleTabDragStart(tab.id, pointer)}
                   onDragMove={(clientX, clientY) =>
                     handleTabDragMove(tab.id, clientX, clientY)
@@ -363,7 +428,10 @@ export const EditorArea = memo(function EditorArea() {
               <button
                 type="button"
                 onClick={() => openPalette("quick")}
-                className="flex size-[var(--workbench-tab-height)] shrink-0 items-center justify-center self-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/45"
+                className={cn(
+                  "flex size-[var(--workbench-tab-height)] shrink-0 items-center justify-center self-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                  INTERACTIVE_FOCUS_CLASS,
+                )}
               >
                 <Plus className="size-4" />
               </button>
@@ -402,28 +470,32 @@ export const EditorArea = memo(function EditorArea() {
                   tab.id !== activeId && "invisible opacity-0",
                 )}
               >
-                <Suspense fallback={<EditorLoading />}>
-                  {tab.kind === "terminal" ? (
-                    <TerminalEditor tab={tab} active={tab.id === activeId} />
-                  ) : (
-                    <FileEditor tab={tab} />
-                  )}
-                </Suspense>
+                <ErrorBoundary>
+                  <Suspense fallback={<EditorLoading />}>
+                    {tab.kind === "terminal" ? (
+                      <TerminalEditor tab={tab} active={tab.id === activeId} />
+                    ) : (
+                      <FileEditor tab={tab} />
+                    )}
+                  </Suspense>
+                </ErrorBoundary>
               </div>
             </TabsContent>
           ))}
         </div>
 
         {(pendingWindowClose || pendingTab) && (
-          <Suspense fallback={null}>
-            <ConfirmDialog
-              state={confirmState}
-              onClose={() => {
-                if (pendingWindowClose) clearPendingWindowClose();
-                else clearPendingClose();
-              }}
-            />
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <ConfirmDialog
+                state={confirmState}
+                onClose={() => {
+                  if (pendingWindowClose) clearPendingWindowClose();
+                  else clearPendingClose();
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
         )}
       </div>
     </Tabs>
@@ -444,10 +516,9 @@ function TabItem({
   dragged,
   onClose,
   onCloseOthers,
-  onCloseRight,
   onCloseAll,
-  hasOtherTabs,
-  hasTabsToRight,
+  canCloseOthers,
+  onMenuOpen,
   onDragStart,
   onDragMove,
   onDragEnd,
@@ -458,10 +529,9 @@ function TabItem({
   dragged: boolean;
   onClose: () => void;
   onCloseOthers: () => void;
-  onCloseRight: () => void;
   onCloseAll: () => void;
-  hasOtherTabs: boolean;
-  hasTabsToRight: boolean;
+  canCloseOthers: boolean;
+  onMenuOpen: () => void;
   onDragStart: (pointer: TabDragPointer) => void;
   onDragMove: (clientX: number, clientY: number) => void;
   onDragEnd: (didDrag: boolean) => void;
@@ -471,6 +541,9 @@ function TabItem({
   const openTerminal = useTabsStore((s) => s.openTerminal);
   const openLocalTerminal = useTabsStore((s) => s.openLocalTerminal);
   const openAdhocTerminal = useTabsStore((s) => s.openAdhocTerminal);
+  const reconnectTerminal = useTabsStore((s) => s.reconnectTerminal);
+  const splitPane = useTabsStore((s) => s.splitPane);
+  const saveFile = useTabsStore((s) => s.saveFile);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -481,6 +554,10 @@ function TabItem({
   const title = tabTitle(tab);
   const dirty = tab.kind === "file" && isFileDirty(tab);
   const pane = tab.kind === "terminal" ? activePane(tab) : null;
+  const canReconnect =
+    pane !== null &&
+    pane.target !== "local" &&
+    (pane.status === "closed" || pane.status === "error");
 
   const reopen = pane
     ? pane.target === "local"
@@ -543,7 +620,11 @@ function TabItem({
   };
 
   return (
-    <ContextMenu>
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (open) onMenuOpen();
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           data-tab-id={tab.id}
@@ -553,9 +634,8 @@ function TabItem({
           onPointerCancel={(event) => finishPointerDrag(event, true)}
           onLostPointerCapture={(event) => finishPointerDrag(event, true)}
           onDoubleClick={(event) => {
-            if ((event.target as HTMLElement).closest("[data-tab-close]")) {
+            if ((event.target as HTMLElement).closest("[data-tab-close]"))
               return;
-            }
             reopen?.();
           }}
           onAuxClick={(e) => {
@@ -575,7 +655,10 @@ function TabItem({
         >
           <TabsTrigger
             value={tab.id}
-            className="flex min-w-0 flex-1 items-center justify-start gap-2 self-stretch rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60"
+            className={cn(
+              "flex min-w-0 flex-1 items-center justify-start gap-2 self-stretch rounded-md text-left",
+              INTERACTIVE_FOCUS_CLASS,
+            )}
             onKeyDown={(e) => {
               if (
                 !e.altKey ||
@@ -638,17 +721,44 @@ function TabItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        {tab.kind === "terminal" && pane && (
+          <>
+            {canReconnect && (
+              <ContextMenuItem onSelect={() => reconnectTerminal(pane.id)}>
+                <PlugZap /> {t("terminal.reconnect")}
+              </ContextMenuItem>
+            )}
+            <ContextMenuItem onSelect={() => reopen?.()}>
+              <Plus /> {t("editor.newSession")}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => splitPane(pane.id, "right")}>
+              <SquareSplitHorizontal /> {t("commands.terminal.splitRight")}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => splitPane(pane.id, "down")}>
+              <SquareSplitVertical /> {t("commands.terminal.splitDown")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
+        {tab.kind === "file" && (
+          <>
+            <ContextMenuItem
+              disabled={!dirty || tab.saving}
+              onSelect={() => void saveFile(tab.id)}
+            >
+              <Save /> {t("common.save")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
         <ContextMenuItem onSelect={onClose}>
-          {t("editor.tabMenu.close")}
+          <X /> {t("editor.closeTab")}
         </ContextMenuItem>
-        <ContextMenuItem disabled={!hasOtherTabs} onSelect={onCloseOthers}>
-          {t("editor.tabMenu.closeOthers")}
-        </ContextMenuItem>
-        <ContextMenuItem disabled={!hasTabsToRight} onSelect={onCloseRight}>
-          {t("editor.tabMenu.closeRight")}
+        <ContextMenuItem disabled={!canCloseOthers} onSelect={onCloseOthers}>
+          <CircleX /> {t("editor.closeOtherTabs")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={onCloseAll}>
-          {t("editor.tabMenu.closeAll")}
+          <SquareX /> {t("editor.closeAllTabs")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -668,7 +778,7 @@ function TabDragGhost({
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed z-[1001] flex items-center gap-2 rounded-md border border-border-strong bg-list-active px-2.5 text-xs text-list-active-foreground opacity-95 shadow-md"
+      className="pointer-events-none fixed z-[1001] flex items-center gap-2 rounded-md border border-border-strong bg-list-active px-2.5 text-xs text-list-active-foreground"
       style={{
         left: dragState.clientX,
         top: dragState.clientY,
@@ -716,7 +826,7 @@ function Watermark() {
   });
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background [background-image:radial-gradient(circle_at_50%_42%,color-mix(in_oklch,var(--color-primary)_7%,transparent),transparent_32%)]">
+    <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background">
       <div className="m-auto grid min-w-max grid-cols-[auto_auto] items-center gap-x-4 gap-y-2.5 p-3">
         {hints.map((hint) => (
           <Fragment key={hint.label}>

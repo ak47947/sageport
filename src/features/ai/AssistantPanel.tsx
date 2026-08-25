@@ -67,7 +67,11 @@ export function AssistantPanel({ width }: { width: number }) {
   const { data: config } = useAiConfig();
   const setModel = useSetAiModel();
   const configured = Boolean(config?.baseUrl.trim());
-  const { data: fetchedModels, error: modelsError } = useAiModels(configured);
+  const {
+    data: fetchedModels,
+    error: modelsError,
+    isLoading: modelsLoading,
+  } = useAiModels(configured);
   const toggleAux = useLayoutStore((s) => s.toggleAux);
   const openSettings = useOverlayStore((s) => s.openSettings);
 
@@ -404,7 +408,7 @@ export function AssistantPanel({ width }: { width: number }) {
           </div>
 
           <div className="shrink-0 px-3 pb-3 pt-2">
-            <div className="overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/35">
+            <div className="overflow-hidden rounded-lg border border-border-strong bg-surface-raised transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/35">
               <Textarea
                 ref={inputRef}
                 rows={1}
@@ -437,11 +441,17 @@ export function AssistantPanel({ width }: { width: number }) {
                     value: item,
                     label: item,
                   }))}
-                  placeholder={t("ai.modelLoading")}
+                  placeholder={
+                    modelsLoading
+                      ? t("ai.modelLoading")
+                      : models.length === 0
+                        ? t("ai.modelEmpty")
+                        : undefined
+                  }
                   title={t("ai.modelLabel")}
                   disabled={models.length === 0}
                   showChevron={false}
-                  className="h-[var(--toolbar-control-size)] w-auto min-w-0 max-w-[70%] border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent focus-visible:ring-0"
+                  className="h-[var(--toolbar-control-size)] w-auto min-w-0 max-w-[70%] border-0 bg-transparent px-2 text-xs hover:bg-accent focus-visible:ring-0"
                 />
                 <div className="ml-auto flex items-center gap-1.5">
                   {pending ? (
@@ -582,7 +592,7 @@ function Bubble({
 }) {
   if (role === "user") {
     return (
-      <div className="ml-auto max-w-[88%] rounded-lg rounded-br-sm border border-border-subtle bg-muted/70 px-3 py-2">
+      <div className="ml-auto max-w-[88%] rounded-lg rounded-br-sm border border-border-subtle bg-muted px-3 py-2">
         <p className="select-text whitespace-pre-wrap break-words text-sm text-foreground/90">
           {content}
         </p>
@@ -704,13 +714,22 @@ const MARKDOWN_COMPONENTS: Components = {
 function CodeBlock({ code }: { code: string }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendToTerminal = useTabsStore((s) => s.sendToTerminal);
+
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    [],
+  );
 
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1500);
     } catch (err) {
       toast.error(t("ai.error"), errorMessage(err));
     }

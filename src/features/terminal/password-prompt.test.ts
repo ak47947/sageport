@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface PasswordPrompt {
   promptId: string;
@@ -13,6 +13,7 @@ interface PasswordPrompt {
 const mocks = vi.hoisted(() => ({
   pendingPasswords: vi.fn(),
   respondPassword: vi.fn(() => Promise.resolve()),
+  passwordUnlisten: vi.fn(),
   passwordListener: undefined as ((event: PasswordPrompt) => void) | undefined,
   passwordClosedListener: undefined as
     ((event: { promptId: string }) => void) | undefined,
@@ -23,7 +24,7 @@ vi.mock("@/lib/ipc", () => ({
     ssh: {
       onPassword: vi.fn((listener: (event: PasswordPrompt) => void) => {
         mocks.passwordListener = listener;
-        return Promise.resolve(vi.fn());
+        return Promise.resolve(mocks.passwordUnlisten);
       }),
       onPasswordClosed: vi.fn(
         (listener: (event: { promptId: string }) => void) => {
@@ -42,6 +43,7 @@ import {
   listenPasswordPrompts,
   usePasswordPromptStore,
 } from "./password-prompt";
+import { ipc } from "@/lib/ipc";
 
 const prompt = (promptId: string, sessionId = "session-1"): PasswordPrompt => ({
   promptId,
@@ -62,6 +64,8 @@ describe("password prompts", () => {
     usePasswordPromptStore.setState({ queue: [] });
   });
 
+  afterEach(() => vi.useRealTimers());
+
   it("recovers a prompt emitted before the event listener was ready", async () => {
     mocks.pendingPasswords.mockResolvedValue([prompt("pending")]);
 
@@ -71,6 +75,51 @@ describe("password prompts", () => {
       prompt("pending"),
     ]);
     expect(hasPasswordPrompt("session-1")).toBe(true);
+  });
+
+  it("retries a failed pending prompt query", async () => {
+    vi.useFakeTimers();
+    mocks.pendingPasswords
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce([prompt("recovered")]);
+
+    const listening = listenPasswordPrompts();
+    await vi.runAllTimersAsync();
+    await listening;
+
+    expect(mocks.pendingPasswords).toHaveBeenCalledTimes(2);
+    expect(usePasswordPromptStore.getState().queue).toEqual([
+      prompt("recovered"),
+    ]);
+  });
+
+  it("reports a pending prompt query after retries are exhausted", async () => {
+    vi.useFakeTimers();
+    const error = new Error("unavailable");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.pendingPasswords.mockRejectedValue(error);
+
+    const listening = listenPasswordPrompts();
+    await vi.runAllTimersAsync();
+    await listening;
+
+    expect(mocks.pendingPasswords).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledWith(
+      "Failed to recover pending password prompts:",
+      error,
+    );
+    warn.mockRestore();
+  });
+
+  it("removes the first listener when the second listener fails", async () => {
+    vi.mocked(ipc.ssh.onPasswordClosed).mockRejectedValueOnce(
+      new Error("listen failed"),
+    );
+
+    await expect(listenPasswordPrompts()).rejects.toThrow("listen failed");
+
+    expect(mocks.passwordUnlisten).toHaveBeenCalledOnce();
+    expect(mocks.pendingPasswords).not.toHaveBeenCalled();
   });
 
   it("deduplicates a prompt seen through both the event and pending query", async () => {

@@ -7,9 +7,9 @@ interface ForwardRuntime {
   status: ForwardStatusKind;
   message?: string;
   code?: string;
+  reconnectAttempt?: number;
   generation: number;
   sequence: number;
-  publicBindRestricted: boolean;
 }
 
 interface ForwardState {
@@ -24,9 +24,9 @@ function fromEvent(event: ForwardStatusEvent): ForwardRuntime {
     status: event.status,
     message: event.message,
     code: event.code,
+    reconnectAttempt: event.reconnectAttempt,
     generation: event.generation,
     sequence: event.sequence,
-    publicBindRestricted: event.publicBindRestricted,
   };
 }
 
@@ -65,7 +65,7 @@ export function bridgeForwardEvents(): Promise<void> {
   bridgePromise = (async () => {
     let syncing = true;
     const queued: ForwardStatusEvent[] = [];
-    await ipc.forwards.onStatus((event) => {
+    const unlisten = await ipc.forwards.onStatus((event) => {
       if (syncing) queued.push(event);
       else useForwardStore.getState().apply(event);
     });
@@ -73,11 +73,14 @@ export function bridgeForwardEvents(): Promise<void> {
     try {
       const snapshot = await ipc.forwards.runtime();
       useForwardStore.getState().hydrate(snapshot);
-    } catch {
-    } finally {
-      for (const event of queued) useForwardStore.getState().apply(event);
-      syncing = false;
+    } catch (error) {
+      try {
+        unlisten();
+      } catch {}
+      throw error;
     }
+    for (const event of queued) useForwardStore.getState().apply(event);
+    syncing = false;
   })().catch((error) => {
     bridgePromise = null;
     throw error;

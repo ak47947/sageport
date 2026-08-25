@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { ipc } from "@/lib/ipc";
 import type { PasswordPromptEvent } from "@/types/models";
+import { recoverPendingPrompts } from "./prompt-recovery";
 
 interface PasswordPromptState {
   queue: PasswordPromptEvent[];
@@ -54,30 +55,37 @@ export const usePasswordPromptStore = create<PasswordPromptState>(
 export async function listenPasswordPrompts(): Promise<() => void> {
   let syncing = true;
   const closedDuringSync = new Set<string>();
-  const [unlistenPrompt, unlistenClosed] = await Promise.all([
-    ipc.ssh.onPassword((event) =>
-      usePasswordPromptStore.getState().push(event),
-    ),
-    ipc.ssh.onPasswordClosed((event) => {
+  const unlistenPrompt = await ipc.ssh.onPassword((event) =>
+    usePasswordPromptStore.getState().push(event),
+  );
+  let unlistenClosed: (() => void) | undefined;
+  try {
+    unlistenClosed = await ipc.ssh.onPasswordClosed((event) => {
       if (syncing) closedDuringSync.add(event.promptId);
       usePasswordPromptStore.getState().dismiss(event.promptId);
-    }),
-  ]);
+    });
+  } catch (error) {
+    unlistenPrompt();
+    throw error;
+  }
 
   try {
-    const pending = await ipc.ssh.pendingPasswords();
-    for (const event of pending) {
-      if (!closedDuringSync.has(event.promptId)) {
-        usePasswordPromptStore.getState().push(event);
-      }
-    }
-  } catch {
+    await recoverPendingPrompts(
+      () => ipc.ssh.pendingPasswords(),
+      (event) => {
+        if (!closedDuringSync.has(event.promptId)) {
+          usePasswordPromptStore.getState().push(event);
+        }
+      },
+      (error) =>
+        console.warn("Failed to recover pending password prompts:", error),
+    );
   } finally {
     syncing = false;
   }
   return () => {
     unlistenPrompt();
-    unlistenClosed();
+    unlistenClosed?.();
   };
 }
 

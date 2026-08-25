@@ -12,6 +12,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use super::agent;
 use super::agent::AgentAuth;
 use super::handler::ClientHandler;
+use super::handler::ForwardedTcpIp;
 use super::{
     AuthMethod, ConnectionPrompts, Hop, PasswordPromptClosedEvent, PasswordPromptEvent,
     PasswordPrompts, PendingPasswordPrompt, EVENT_PASSWORD, EVENT_PASSWORD_CLOSED,
@@ -53,7 +54,7 @@ fn client_config() -> Arc<Config> {
     Arc::new(Config {
         inactivity_timeout: None,
         keepalive_interval: Some(KEEPALIVE_INTERVAL),
-        keepalive_max: 0,
+        keepalive_max: 3,
         ..Default::default()
     })
 }
@@ -72,7 +73,7 @@ pub async fn establish_with_forwarded_tcpip(
     prompts: &ConnectionPrompts,
     session_id: &str,
     hops: &[Hop],
-    forwarded_tcpip: Option<mpsc::Sender<russh::Channel<client::Msg>>>,
+    forwarded_tcpip: Option<mpsc::Sender<ForwardedTcpIp>>,
 ) -> AppResult<SshConnection> {
     if hops.is_empty() {
         return Err(AppError::Invalid("no host to connect to".into()));
@@ -109,13 +110,24 @@ pub async fn establish_with_forwarded_tcpip(
                 .await?
             }
             Some(prev) => {
-                let channel = with_ssh_timeout(prev.channel_open_direct_tcpip(
-                    hop.host.clone(),
-                    hop.port as u32,
-                    "127.0.0.1",
-                    0,
-                ))
-                .await?;
+                let channel = with_ssh_timeout(
+                    prev.channel_open_direct_tcpip(
+                        hop.host.clone(),
+                        hop.port as u32,
+                        "127.0.0.1",
+                        0,
+                    ),
+                )
+                .await
+                .map_err(|error| match error {
+                    AppError::Ssh(russh::Error::RequestDenied) => AppError::Other(format!(
+                        "jump host {} rejected the connection to {}:{}; verify AllowTcpForwarding and PermitOpen on the jump host",
+                        hops[index - 1].host,
+                        hop.host,
+                        hop.port
+                    )),
+                    error => error,
+                })?;
                 jumps.push(prev);
                 with_host_key_aware_timeout(
                     client::connect_stream(config.clone(), channel.into_stream(), handler),
@@ -585,11 +597,11 @@ mod tests {
     }
 
     #[test]
-    fn keepalives_do_not_close_compatible_servers_that_ignore_replies() {
+    fn keepalives_detect_unresponsive_servers() {
         let config = client_config();
 
         assert_eq!(config.keepalive_interval, Some(KEEPALIVE_INTERVAL));
-        assert_eq!(config.keepalive_max, 0);
+        assert_eq!(config.keepalive_max, 3);
     }
 
     #[tokio::test]

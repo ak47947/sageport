@@ -55,6 +55,7 @@ export function SftpPanel({ height }: { height: number }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const pendingConflict = useSftpStore((s) => s.pendingConflict);
   const resolveConflict = useSftpStore((s) => s.resolveConflict);
+  const cancelConflict = useSftpStore((s) => s.cancelConflict);
   const setConflictApplyToRemaining = useSftpStore(
     (s) => s.setConflictApplyToRemaining,
   );
@@ -102,6 +103,8 @@ export function SftpPanel({ height }: { height: number }) {
       );
     }
   }, [currentTerminal, panes, setTerminalCwd]);
+
+  useEffect(() => () => cancelConflict(), [cancelConflict]);
 
   const bodyWidth = () => bodyRef.current?.getBoundingClientRect().width ?? 0;
 
@@ -345,7 +348,7 @@ function OperationStrip() {
   if (active.length === 0) return null;
 
   return (
-    <div className="flex max-h-28 flex-col overflow-y-auto border-t border-border-subtle bg-surface/80 px-2.5">
+    <div className="flex max-h-28 flex-col overflow-y-auto border-t border-border-subtle bg-surface px-2.5">
       {active.map((item) => {
         const pct =
           item.total > 0

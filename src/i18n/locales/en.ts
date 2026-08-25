@@ -10,6 +10,7 @@ export const en = {
     delete: "Delete",
     edit: "Edit",
     rename: "Rename",
+    reloadApp: "Reload app",
     retry: "Retry",
     save: "Save",
     saveChanges: "Save changes",
@@ -96,6 +97,7 @@ export const en = {
     uptimeHm: "{h}h {m}m",
     uptimeM: "{m}m",
     collecting: "Collecting statistics…",
+    listenerError: "Failed to initialize monitoring",
     unsupported: "Statistics aren't available on this system.",
     empty: {
       title: "No active sessions",
@@ -111,6 +113,7 @@ export const en = {
     start: "Start",
     stop: "Stop",
     starting: "Starting…",
+    reconnecting: "Reconnecting · attempt {attempt}",
     startError: "Failed to start port forward",
     stopError: "Failed to stop port forward",
     statusError: "Failed to monitor port forward status",
@@ -151,15 +154,6 @@ export const en = {
       action: "Delete port forward",
       error: "Failed to delete port forward",
     },
-    gatewayPorts: {
-      title: "Configure public SSH forwarding",
-      description:
-        'The SSH server did not allow "{name}" to listen on {endpoint}. Ask an administrator to run this command on the server. It lets remote forwards select their listen address while loopback addresses remain private.',
-      restartHint: "After the command succeeds, start this port forward again.",
-      copyCommand: "Copy setup command",
-      commandCopied: "Setup command copied",
-      copyError: "Failed to copy setup command",
-    },
     form: {
       newTitle: "New port forward",
       editTitle: "Edit port forward",
@@ -168,13 +162,41 @@ export const en = {
       targetRequired: "Enter a target host",
       invalidTargetPort: "Enter a target port from 1 to 65535",
       saveError: "Failed to save port forward",
-      publicSocks: {
-        title: "Expose SOCKS proxy?",
-        description:
-          "Anyone who can reach {endpoint} can use this unauthenticated proxy to access services through your SSH host.",
-        hint: "This address exposes the unauthenticated SOCKS proxy beyond this device.",
+      bindHint: {
+        local: "Loopback keeps this port available only on this device.",
+        remote: "The SSH server listens on this address.",
+        dynamic: "Loopback keeps this proxy available only on this device.",
+      },
+      targetHint: {
+        local: "The SSH host connects to this destination.",
+        remote: "This device connects to this destination.",
+      },
+      exposedBind: {
+        title: {
+          local: "Expose local port forward?",
+          remote: "Expose remote port forward?",
+          dynamic: "Expose SOCKS proxy?",
+        },
+        description: {
+          local:
+            "Other devices that can reach {endpoint} can use this SSH port forward.",
+          remote:
+            "Other devices that can reach {endpoint} on the SSH server can connect to the target. The SSH server must allow this listen address.",
+          dynamic:
+            "Anyone who can reach {endpoint} can use this unauthenticated proxy to access services through your SSH host.",
+        },
+        hint: {
+          local: "This address allows other devices to use the port forward.",
+          remote: "This address may expose the target through the SSH server.",
+          dynamic:
+            "This address exposes the unauthenticated proxy to other devices.",
+        },
         cancel: "Keep editing",
-        action: "Expose SOCKS proxy",
+        action: {
+          local: "Expose port forward",
+          remote: "Expose port forward",
+          dynamic: "Expose SOCKS proxy",
+        },
       },
     },
   },
@@ -243,12 +265,8 @@ export const en = {
     newSession: "New session",
     tabList: "Open sessions",
     closeTab: "Close tab",
-    tabMenu: {
-      close: "Close",
-      closeOthers: "Close others",
-      closeRight: "Close tabs to the right",
-      closeAll: "Close all",
-    },
+    closeOtherTabs: "Close other tabs",
+    closeAllTabs: "Close all tabs",
     tabLimitReached: "You can open up to {count} terminal sessions",
     fileTabLimitReached: "You can open up to {count} files",
     unsavedTitle: "Save changes?",
@@ -964,6 +982,7 @@ export const en = {
     deny: "Deny",
     modelLabel: "Model",
     modelLoading: "Loading models…",
+    modelEmpty: "No models available",
     promptTooLong: "The message is too long to send.",
     autonomousMode: "Autonomous",
     autonomousModeHint:

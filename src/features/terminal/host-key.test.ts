@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HostKeyEvent } from "@/types/models";
 
 const mocks = vi.hoisted(() => ({
   pendingHostKeys: vi.fn(),
   respondHostKey: vi.fn(() => Promise.resolve()),
+  promptUnlisten: vi.fn(),
   promptListener: undefined as ((event: HostKeyEvent) => void) | undefined,
   closedListener: undefined as
     ((event: { promptId: string }) => void) | undefined,
@@ -15,7 +16,7 @@ vi.mock("@/lib/ipc", () => ({
     ssh: {
       onHostKey: vi.fn((listener: (event: HostKeyEvent) => void) => {
         mocks.promptListener = listener;
-        return Promise.resolve(vi.fn());
+        return Promise.resolve(mocks.promptUnlisten);
       }),
       onHostKeyClosed: vi.fn(
         (listener: (event: { promptId: string }) => void) => {
@@ -34,6 +35,7 @@ import {
   listenHostKeyEvents,
   useHostKeyStore,
 } from "./host-key";
+import { ipc } from "@/lib/ipc";
 
 function prompt(promptId: string, sessionId = "session-1"): HostKeyEvent {
   return {
@@ -56,6 +58,8 @@ describe("host key prompts", () => {
     useHostKeyStore.setState({ queue: [] });
   });
 
+  afterEach(() => vi.useRealTimers());
+
   it("recovers and deduplicates a prompt emitted before listening", async () => {
     mocks.pendingHostKeys.mockImplementation(async () => {
       mocks.promptListener?.(prompt("pending"));
@@ -66,6 +70,31 @@ describe("host key prompts", () => {
 
     expect(useHostKeyStore.getState().queue).toEqual([prompt("pending")]);
     expect(hasHostKeyPrompt("session-1")).toBe(true);
+  });
+
+  it("retries a failed pending host key query", async () => {
+    vi.useFakeTimers();
+    mocks.pendingHostKeys
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce([prompt("recovered")]);
+
+    const listening = listenHostKeyEvents();
+    await vi.runAllTimersAsync();
+    await listening;
+
+    expect(mocks.pendingHostKeys).toHaveBeenCalledTimes(2);
+    expect(useHostKeyStore.getState().queue).toEqual([prompt("recovered")]);
+  });
+
+  it("removes the first listener when the second listener fails", async () => {
+    vi.mocked(ipc.ssh.onHostKeyClosed).mockRejectedValueOnce(
+      new Error("listen failed"),
+    );
+
+    await expect(listenHostKeyEvents()).rejects.toThrow("listen failed");
+
+    expect(mocks.promptUnlisten).toHaveBeenCalledOnce();
+    expect(mocks.pendingHostKeys).not.toHaveBeenCalled();
   });
 
   it("does not restore a prompt that closed during recovery", async () => {
