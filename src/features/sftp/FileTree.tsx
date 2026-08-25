@@ -3,11 +3,14 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  Copy,
+  Download,
   File,
   Folder,
   FolderOpen,
   Loader2,
   Lock,
+  RefreshCw,
   SquarePen,
   TextCursorInput,
   Trash2,
@@ -27,7 +30,7 @@ import {
 } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { ipc } from "@/lib/ipc";
-import { toast } from "@/lib/toast";
+import { errorMessage, toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { FileEntry } from "@/types/models";
 import { useTabsStore } from "@/workbench/tabs";
@@ -41,6 +44,7 @@ import {
 } from "./file-tree";
 import {
   MAX_EDIT_BYTES,
+  parentPath,
   useSftpStore,
   type PaneSide,
   type SftpTab,
@@ -106,6 +110,9 @@ export function FileTree({
 }) {
   const { t } = useI18n();
   const navigate = useSftpStore((state) => state.navigate);
+  const download = useSftpStore((state) => state.download);
+  const reloadEntries = useSftpStore((state) => state.reloadEntries);
+  const treeRefresh = useSftpStore((state) => state.treeRefresh);
   const reconnectTab = useSftpStore((state) => state.reconnectTab);
   const setSelected = useSftpStore((state) => state.setSelected);
   const showHidden = useSftpStore((state) => state.showHidden);
@@ -122,9 +129,8 @@ export function FileTree({
   const treeRef = useRef<HTMLDivElement>(null);
   const root = ancestors[0] ?? tab.cwd;
 
-  const load = useCallback(
+  const reload = useCallback(
     async (path: string) => {
-      if (entriesRef.current.has(path)) return;
       setLoading((current) => new Set(current).add(path));
       setFailed((current) => {
         if (!current.has(path)) return current;
@@ -150,6 +156,27 @@ export function FileTree({
     },
     [tab.connectionId],
   );
+
+  const load = useCallback(
+    async (path: string) => {
+      if (entriesRef.current.has(path)) return;
+      await reload(path);
+    },
+    [reload],
+  );
+
+  useEffect(() => {
+    if (
+      !treeRefresh ||
+      treeRefresh.side !== side ||
+      treeRefresh.tabId !== tab.id
+    ) {
+      return;
+    }
+    for (const path of treeRefresh.paths) {
+      if (path !== tab.cwd && entriesRef.current.has(path)) void reload(path);
+    }
+  }, [reload, side, tab.cwd, tab.id, treeRefresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -239,6 +266,12 @@ export function FileTree({
   const toggle = (path: string) => {
     setExpanded((current) => toggleTreePath(current, path));
     if (path !== tab.cwd && !entriesRef.current.has(path)) void load(path);
+  };
+
+  const refreshNode = (entry: FileEntry) => {
+    const target = entry.kind === "dir" ? entry.path : parentPath(entry.path);
+    if (target === tab.cwd) void reloadEntries(side, tab.id);
+    else void reload(target);
   };
 
   return (
@@ -362,6 +395,32 @@ export function FileTree({
                       <SquarePen /> {t("common.edit")}
                     </ContextMenuItem>
                   )}
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onSelect={() => refreshNode(entry)}>
+                    <RefreshCw /> {t("sftp.refresh")}
+                  </ContextMenuItem>
+                  {tab.kind === "remote" && (
+                    <ContextMenuItem
+                      onSelect={() => void download(side, [entry])}
+                    >
+                      <Download /> {t("sftp.download")}
+                    </ContextMenuItem>
+                  )}
+                  <ContextMenuItem
+                    onSelect={() => {
+                      navigator.clipboard
+                        .writeText(entry.path)
+                        .then(() => toast.success(t("common.copied")))
+                        .catch((err) =>
+                          toast.error(
+                            t("sftp.copyPathError"),
+                            errorMessage(err),
+                          ),
+                        );
+                    }}
+                  >
+                    <Copy /> {t("sftp.copyPath")}
+                  </ContextMenuItem>
                   {!protectedDirectory && <ContextMenuSeparator />}
                   {!protectedDirectory && (
                     <ContextMenuItem onSelect={() => setRenamePath(entry.path)}>

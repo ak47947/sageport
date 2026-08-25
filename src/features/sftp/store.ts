@@ -83,6 +83,7 @@ export interface ActiveDeleteOperation extends DeleteEvent {
   label: string;
   side: PaneSide;
   tabId: string;
+  paths: string[];
   cancelRequested: boolean;
 }
 
@@ -97,6 +98,11 @@ interface SftpState {
 
   transfers: Record<string, ActiveTransfer>;
   deletions: Record<string, ActiveDeleteOperation>;
+  treeRefresh: {
+    side: PaneSide;
+    tabId: string;
+    paths: string[];
+  } | null;
 
   showHidden: boolean;
   showFileToolbar: boolean;
@@ -143,6 +149,8 @@ interface SftpState {
   ) => Promise<void>;
   restoreLoadedPath: (side: PaneSide, tabId: string) => void;
   refresh: (side: PaneSide, tabId: string) => Promise<void>;
+  reloadEntries: (side: PaneSide, tabId: string) => Promise<void>;
+  refreshTreePaths: (side: PaneSide, tabId: string, paths: string[]) => void;
   setSelected: (side: PaneSide, tabId: string, selected: string[]) => void;
 
   applyStatus: (
@@ -159,6 +167,7 @@ interface SftpState {
   cancelDelete: (operationId: string) => void;
 
   transfer: (fromSide: PaneSide, entries?: FileEntry[]) => Promise<void>;
+  download: (side: PaneSide, entries?: FileEntry[]) => Promise<void>;
   deleteEntries: (
     side: PaneSide,
     tabId: string,
@@ -423,6 +432,7 @@ export const useSftpStore = create<SftpState>((set, get) => {
     panes: { left: emptyPane(), right: emptyPane() },
     transfers: {},
     deletions: {},
+    treeRefresh: null,
     pendingConflict: null,
     showHidden: false,
     showFileToolbar: false,
@@ -721,6 +731,24 @@ export const useSftpStore = create<SftpState>((set, get) => {
       return tab ? loadEntries(side, tabId, tab.cwd, null) : Promise.resolve();
     },
 
+    reloadEntries: async (side, tabId) => {
+      const tab = get().panes[side].tabs.find((t) => t.id === tabId);
+      if (!tab || !tab.cwd) return;
+      if (tab.kind === "remote" && tab.status !== "connected") return;
+      try {
+        const entries = await ipc.sftp.list(tab.connectionId, tab.cwd);
+        const current = get().panes[side].tabs.find((t) => t.id === tabId);
+        if (current && current.cwd === tab.cwd) {
+          patchTab(side, tabId, { entries });
+        }
+      } catch {}
+    },
+
+    refreshTreePaths: (side, tabId, paths) => {
+      if (paths.length === 0) return;
+      set({ treeRefresh: { side, tabId, paths } });
+    },
+
     setSelected: (side, tabId, selected) => patchTab(side, tabId, { selected }),
 
     applyStatus: (connectionId, status, message, code) => {
@@ -876,7 +904,14 @@ export const useSftpStore = create<SftpState>((set, get) => {
         }
       }
       if (completed) {
-        void get().refresh(completed.side, completed.tabId);
+        const cwd = get().panes[completed.side].tabs.find(
+          (tab) => tab.id === completed.tabId,
+        )?.cwd;
+        void get().reloadEntries(completed.side, completed.tabId);
+        const parents = [
+          ...new Set(completed.paths.map((path) => parentPath(path))),
+        ].filter((path) => path !== cwd);
+        get().refreshTreePaths(completed.side, completed.tabId, parents);
       }
     },
 
@@ -1027,6 +1062,120 @@ export const useSftpStore = create<SftpState>((set, get) => {
       }
     },
 
+    download: async (side, entries) => {
+      const pane = get().panes[side];
+      const tab = pane.tabs.find((t) => t.id === pane.activeTabId);
+      if (!tab) return;
+      if (tab.kind !== "remote" || tab.status !== "connected") {
+        toast.error(t("sftp.notConnected"));
+        return;
+      }
+
+      const items =
+        entries ?? tab.entries.filter((e) => tab.selected.includes(e.path));
+      if (items.length === 0) return;
+
+      const { open, save } = await import("@tauri-apps/plugin-dialog");
+
+      let destDir: string;
+      let singleTargetName: string | null = null;
+      if (items.length === 1 && items[0].kind === "file") {
+        const chosen = await save({
+          title: t("sftp.downloadDialogTitle"),
+          defaultPath: items[0].name,
+        });
+        if (!chosen) return;
+        destDir = parentPath(chosen);
+        singleTargetName = pathBaseName(chosen);
+      } else {
+        const chosen = await open({
+          title: t("sftp.downloadDialogTitle"),
+          directory: true,
+          multiple: false,
+        });
+        const dir = Array.isArray(chosen) ? chosen[0] : chosen;
+        if (!dir) return;
+        destDir = dir;
+      }
+      if (!destDir) return;
+
+      const occupied =
+        singleTargetName !== null
+          ? new Set<string>()
+          : new Set(
+              (await ipc.sftp.list(null, destDir).catch(() => [])).map(
+                (entry) => entry.name,
+              ),
+            );
+      let batchDecision: ConflictAction | null = null;
+
+      for (const [index, item] of items.entries()) {
+        let targetName = singleTargetName ?? item.name;
+        let overwrite = singleTargetName !== null;
+        if (singleTargetName === null && occupied.has(targetName)) {
+          const decision: ConflictDecision = batchDecision
+            ? { action: batchDecision, applyToRemaining: true }
+            : await new Promise<ConflictDecision>((resolve) => {
+                conflictResolver?.({ action: "skip", applyToRemaining: false });
+                conflictResolver = resolve;
+                set({
+                  pendingConflict: {
+                    name: item.name,
+                    remaining: items.length - index - 1,
+                    applyToRemaining: false,
+                    sourceTabId: tab.id,
+                    destinationTabId: "",
+                  },
+                });
+              });
+          if (decision.action === "cancel") return;
+          if (decision.applyToRemaining) batchDecision = decision.action;
+          if (decision.action === "skip") continue;
+          if (decision.action === "rename") {
+            targetName = uniqueCopyName(item.name, occupied);
+          } else {
+            overwrite = true;
+          }
+        }
+        occupied.add(targetName);
+        const transferId = crypto.randomUUID();
+        set((s) => ({
+          transfers: {
+            ...s.transfers,
+            [transferId]: pendingTransfer(
+              {
+                transferId,
+                transferred: 0,
+                total: item.kind === "file" ? item.size : 0,
+                file: item.name,
+                status: "active",
+                phase: "preparing",
+              },
+              tab.connectionId,
+              null,
+            ),
+          },
+        }));
+        try {
+          await ipc.sftp.transfer(
+            transferId,
+            { connectionId: tab.connectionId, path: item.path },
+            { connectionId: null, path: destDir },
+            targetName,
+            overwrite,
+          );
+          void queryClient.invalidateQueries({ queryKey: transferHistoryKey });
+        } catch (err) {
+          set((s) => {
+            const rest = { ...s.transfers };
+            delete rest[transferId];
+            return { transfers: rest };
+          });
+          toast.error(t("sftp.transferError"), errorMessage(err));
+        }
+      }
+    },
+
     deleteEntries: async (side, tabId, entries) => {
       const tab = get().panes[side].tabs.find(
         (candidate) => candidate.id === tabId,
@@ -1056,6 +1205,7 @@ export const useSftpStore = create<SftpState>((set, get) => {
             label,
             side,
             tabId,
+            paths: entries.map((entry) => entry.path),
             cancelRequested: false,
           },
         },

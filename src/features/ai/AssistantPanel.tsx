@@ -411,7 +411,7 @@ export function AssistantPanel({ width }: { width: number }) {
             <div className="overflow-hidden rounded-lg border border-border-strong bg-surface-raised transition-colors focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/35">
               <Textarea
                 ref={inputRef}
-                rows={1}
+                rows={3}
                 value={input}
                 maxLength={MAX_AI_PROMPT_CHARS}
                 disabled={sessionLoading}

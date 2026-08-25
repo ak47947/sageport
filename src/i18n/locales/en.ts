@@ -882,6 +882,10 @@ export const en = {
     connectionLost:
       "The remote connection was interrupted. Check your network and reconnect.",
     notConnected: "Connect before transferring files",
+    download: "Download",
+    downloadDialogTitle: "Download to",
+    copyPath: "Copy path",
+    copyPathError: "Failed to copy path",
     toggleHidden: "Show hidden files",
     showSearchToolbar: "Show search and sort",
     hideSearchToolbar: "Hide search and sort",

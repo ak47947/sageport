@@ -12,7 +12,9 @@ import {
   ArrowUpDown,
   AudioLines,
   CircleAlert,
+  Copy,
   Database,
+  Download,
   File,
   FileArchive,
   FileCode,
@@ -28,6 +30,7 @@ import {
   FolderSymlink,
   Lock,
   Package,
+  RefreshCw,
   Search,
   SquarePen,
   TextCursorInput,
@@ -58,7 +61,7 @@ import {
 import { useI18n } from "@/i18n";
 import { layoutDragPreview } from "@/lib/dragPreview";
 import { useDragCursor } from "@/lib/pointerDrag";
-import { toast } from "@/lib/toast";
+import { errorMessage, toast } from "@/lib/toast";
 import { cn, formatBytes } from "@/lib/utils";
 import type { FileEntry } from "@/types/models";
 import { useTabsStore } from "@/workbench/tabs";
@@ -166,6 +169,8 @@ export function FileList({
   const navigate = useSftpStore((s) => s.navigate);
   const setSelected = useSftpStore((s) => s.setSelected);
   const transfer = useSftpStore((s) => s.transfer);
+  const download = useSftpStore((s) => s.download);
+  const refresh = useSftpStore((s) => s.refresh);
   const reconnectTab = useSftpStore((s) => s.reconnectTab);
   const showHidden = useSftpStore((s) => s.showHidden);
   const showFileToolbar = useSftpStore((s) => s.showFileToolbar);
@@ -383,6 +388,15 @@ export function FileList({
 
   const sendLabel = side === "left" ? t("sftp.sendRight") : t("sftp.sendLeft");
   const SendIcon = side === "left" ? ArrowRight : ArrowLeft;
+
+  const copyPath = async (paths: string[]) => {
+    try {
+      await navigator.clipboard.writeText(paths.join("\n"));
+      toast.success(t("common.copied"));
+    } catch (err) {
+      toast.error(t("sftp.copyPathError"), errorMessage(err));
+    }
+  };
 
   return (
     <ScrollArea
@@ -620,6 +634,26 @@ export function FileList({
                         <SquarePen /> {t("common.edit")}
                       </ContextMenuItem>
                     )}
+                    <ContextMenuSeparator />
+                    <ContextMenuItem
+                      onSelect={() => void refresh(side, tab.id)}
+                    >
+                      <RefreshCw /> {t("sftp.refresh")}
+                    </ContextMenuItem>
+                    {tab.kind === "remote" && (
+                      <ContextMenuItem
+                        onSelect={() => void download(side, actionEntries)}
+                      >
+                        <Download /> {t("sftp.download")}
+                      </ContextMenuItem>
+                    )}
+                    <ContextMenuItem
+                      onSelect={() =>
+                        void copyPath(actionEntries.map((e) => e.path))
+                      }
+                    >
+                      <Copy /> {t("sftp.copyPath")}
+                    </ContextMenuItem>
                     {single && <ContextMenuSeparator />}
                     {single && (
                       <ContextMenuItem

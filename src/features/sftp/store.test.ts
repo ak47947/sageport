@@ -779,7 +779,7 @@ describe("SFTP delete operations", () => {
     });
   });
 
-  it("refreshes the original tab when deletion finishes", async () => {
+  it("reloads the tab and tree parents when deletion finishes", async () => {
     const entry: FileEntry = {
       name: "logs",
       path: "/uploads/logs",
@@ -791,8 +791,9 @@ describe("SFTP delete operations", () => {
     };
     await useSftpStore.getState().deleteEntries("left", "left-source", [entry]);
     const [operationId] = vi.mocked(ipc.sftp.deleteBatch).mock.calls[0];
-    const refresh = vi.fn(() => Promise.resolve());
-    useSftpStore.setState({ refresh });
+    const reloadEntries = vi.fn(() => Promise.resolve());
+    const refreshTreePaths = vi.fn();
+    useSftpStore.setState({ reloadEntries, refreshTreePaths });
 
     useSftpStore.getState().applyDelete({
       operationId,
@@ -804,7 +805,8 @@ describe("SFTP delete operations", () => {
     });
 
     expect(useSftpStore.getState().deletions[operationId]).toBeUndefined();
-    expect(refresh).toHaveBeenCalledWith("left", "left-source");
+    expect(reloadEntries).toHaveBeenCalledWith("left", "left-source");
+    expect(refreshTreePaths).toHaveBeenCalledWith("left", "left-source", []);
   });
 
   it("marks deletion as cancelling before requesting cancellation", async () => {
