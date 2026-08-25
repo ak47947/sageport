@@ -73,7 +73,7 @@ vi.mock("@/lib/ipc", () => ({
   },
 }));
 
-function renderDialog() {
+function renderDialog(hostId: string | null = "host-1") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -82,7 +82,7 @@ function renderDialog() {
       <I18nProvider>
         <HostFormDialog
           open
-          hostId="host-1"
+          hostId={hostId}
           initialGroupId={null}
           onClose={() => undefined}
         />
@@ -137,6 +137,37 @@ describe("HostFormDialog", () => {
       );
     });
     expect(vi.mocked(ipc.hosts.update)).not.toHaveBeenCalled();
+  });
+
+  it("tests a new host without saving it", async () => {
+    renderDialog(null);
+
+    fireEvent.change(screen.getByPlaceholderText("Production web"), {
+      target: { value: "new-web" },
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("10.0.0.4 or host.example.com"),
+      { target: { value: "10.0.0.6" } },
+    );
+    fireEvent.change(screen.getByPlaceholderText("root"), {
+      target: { value: "deploy" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(ipc.ssh.testConnection)).toHaveBeenCalledWith(
+        expect.any(String),
+        null,
+        expect.objectContaining({
+          label: "new-web",
+          address: "10.0.0.6",
+          port: 22,
+          username: "deploy",
+          authType: "password",
+        }),
+      );
+    });
+    expect(vi.mocked(ipc.hosts.create)).not.toHaveBeenCalled();
   });
 
   it("cancels an active connection test when the editor closes", async () => {

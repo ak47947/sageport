@@ -247,7 +247,6 @@ function HostFormBody({
   });
 
   const testConnection = handleSubmit(async (values) => {
-    if (!hostId) return;
     const requestId = crypto.randomUUID();
     connectionTestId.current = requestId;
     setTestingConnection(true);
@@ -290,19 +289,17 @@ function HostFormBody({
       pending={saving}
       submitDisabled={testingConnection}
       footerStart={
-        hostId ? (
-          <Button
-            type="button"
-            variant="outline"
-            loading={testingConnection}
-            disabled={saving}
-            onClick={() => void testConnection()}
-          >
-            {testingConnection
-              ? t("hostForm.testingConnection")
-              : t("hostForm.testConnection")}
-          </Button>
-        ) : undefined
+        <Button
+          type="button"
+          variant="outline"
+          loading={testingConnection}
+          disabled={saving}
+          onClick={() => void testConnection()}
+        >
+          {testingConnection
+            ? t("hostForm.testingConnection")
+            : t("hostForm.testConnection")}
+        </Button>
       }
     >
       <div className="grid grid-cols-2 gap-3">

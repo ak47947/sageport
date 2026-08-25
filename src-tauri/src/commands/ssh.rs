@@ -167,7 +167,7 @@ pub async fn ssh_test_connection(
     app: AppHandle,
     state: State<'_, AppState>,
     request_id: String,
-    host_id: String,
+    host_id: Option<String>,
     input: HostInput,
 ) -> AppResult<()> {
     validate_session_id(&request_id)?;
@@ -190,8 +190,11 @@ pub async fn ssh_test_connection(
     }
 
     let test = async {
-        let saved_password = host_repo::get(&state.db, &host_id).await?.password;
-        let host = connection_test_host(Some(host_id), input, saved_password)?;
+        let saved_password = match host_id.as_deref() {
+            Some(host_id) => host_repo::get(&state.db, host_id).await?.password,
+            None => None,
+        };
+        let host = connection_test_host(host_id, input, saved_password)?;
         let hops = build_hops(&state, &host).await?;
         let session_id = format!("connection-test-{request_id}");
         let connection =
@@ -481,5 +484,29 @@ mod tests {
 
         assert_eq!(host.id, "host-1");
         assert_eq!(host.password.as_deref(), Some("saved-secret"));
+    }
+
+    #[test]
+    fn connection_test_builds_an_unsaved_host_without_a_saved_password() {
+        let input = HostInput {
+            label: "New host".into(),
+            address: "example.com".into(),
+            port: 22,
+            group_id: None,
+            identity_id: None,
+            username: Some("deploy".into()),
+            auth_type: Some(auth::PASSWORD.into()),
+            key_id: None,
+            os_hint: None,
+            notes: None,
+            jump_host_id: None,
+            startup_command: None,
+            password: Some("new-secret".into()),
+        };
+
+        let host = connection_test_host(None, input, None).unwrap();
+
+        assert!(!host.id.is_empty());
+        assert_eq!(host.password.as_deref(), Some("new-secret"));
     }
 }

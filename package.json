@@ -2,7 +2,7 @@
   "name": "sageport",
   "private": true,
   "version": "2.6.5",
-  "author": "Quincy Zhang",
+  "author": "wellsluo",
   "license": "GPL-3.0-only",
   "type": "module",
   "packageManager": "pnpm@11.9.0",

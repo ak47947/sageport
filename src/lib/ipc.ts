@@ -224,8 +224,11 @@ export const ipc = {
       cols: number;
       rows: number;
     }) => invoke<void>("ssh_connect_adhoc", params),
-    testConnection: (requestId: string, hostId: string, input: HostInput) =>
-      invoke<void>("ssh_test_connection", { requestId, hostId, input }),
+    testConnection: (
+      requestId: string,
+      hostId: string | null,
+      input: HostInput,
+    ) => invoke<void>("ssh_test_connection", { requestId, hostId, input }),
     cancelConnectionTest: (requestId: string) =>
       invoke<void>("ssh_cancel_connection_test", { requestId }),
     send: (sessionId: string, attempt: number, data: string) =>
