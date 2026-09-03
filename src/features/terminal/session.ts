@@ -19,6 +19,18 @@ export const CONNECT_TIMEOUT_MS = 45_000;
 export const MAX_PENDING_INPUT_BYTES = 1024 * 1024;
 const COLUMN_RESIZE_DEBOUNCE_MS = 100;
 
+export function parseTerminalDirectory(data: string): string | undefined {
+  try {
+    const url = new URL(data);
+    if (url.protocol !== "file:") return undefined;
+    const path = decodeURIComponent(url.pathname);
+    if (!path.startsWith("/") || path.includes("\0")) return undefined;
+    return path;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface SessionStatusEvent {
   status: TerminalStatus;
   code?: string | null;
@@ -73,6 +85,7 @@ export class TerminalSession {
   private opening = false;
   private pendingFocus = false;
   private customKeyHandler: ((event: KeyboardEvent) => boolean) | null = null;
+  private directory: string | undefined;
 
   constructor(opts: TerminalSessionOptions) {
     this.opts = opts;
@@ -91,9 +104,11 @@ export class TerminalSession {
     this.term.loadAddon(this.highlights);
     this.commands = new CommandTracker(term);
 
-    const cwdHandler = term.parser.registerOscHandler(7, (value) => {
-      const cwd = cwdFromOsc7(value);
-      if (cwd) opts.onCwd?.(cwd);
+    const directorySub = this.term.parser.registerOscHandler(7, (data) => {
+      const directory = parseTerminalDirectory(data) ?? cwdFromOsc7(data);
+      if (!directory || directory.includes("\0")) return false;
+      this.directory = directory;
+      opts.onCwd?.(directory);
       return true;
     });
 
@@ -109,7 +124,7 @@ export class TerminalSession {
     this.disposables.push(
       () => dataSub.dispose(),
       () => resizeSub.dispose(),
-      () => cwdHandler.dispose(),
+      () => directorySub.dispose(),
     );
   }
 
@@ -266,6 +281,10 @@ export class TerminalSession {
     }
     const text = lines.join("\n").replace(/\s+$/, "");
     return text || undefined;
+  }
+
+  currentDirectory(): string | undefined {
+    return this.directory;
   }
 
   dispose() {
