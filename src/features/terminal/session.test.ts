@@ -9,6 +9,7 @@ const terminal = vi.hoisted(() => ({
   buffer: { active: { length: 0, type: "normal" } },
   onData: vi.fn(() => ({ dispose: vi.fn() })),
   onResize: vi.fn(() => ({ dispose: vi.fn() })),
+  registerMarker: vi.fn(() => ({ onDispose: vi.fn(), dispose: vi.fn() })),
   open: vi.fn(),
   attachCustomKeyEventHandler: vi.fn(),
   focus: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("./xterm", () => ({
 
 import {
   CONNECT_TIMEOUT_MS,
+  INPUT_FLUSH_DELAY_MS,
   MAX_PENDING_INPUT_BYTES,
   TerminalSession,
   parseTerminalDirectory,
@@ -290,6 +292,85 @@ describe("TerminalSession lifecycle", () => {
     expect(events.at(-1)?.message).toContain("queue limit");
     expect(current.send).not.toHaveBeenCalled();
     expect(current.disconnect).toHaveBeenCalledTimes(1);
+    session.dispose();
+  });
+});
+
+describe("command submission", () => {
+  async function connectedSession(): Promise<{
+    session: TerminalSession;
+    current: TerminalTransport;
+  }> {
+    let statusHandler: ((event: TerminalStatusUpdate) => void) | undefined;
+    const current = transport({
+      onStatus: vi.fn((handler) => {
+        statusHandler = handler;
+        return Promise.resolve(() => {});
+      }),
+    });
+    const session = new TerminalSession({
+      id: "session-1",
+      connectionKey: "attempt-1",
+      transport: current,
+      fontFamily: "monospace",
+      fontSize: 13,
+      theme: {},
+      watchHostKey: false,
+      imagePaste: false,
+      onStatus: vi.fn(),
+    });
+
+    session.attach({} as HTMLElement);
+    await vi.waitFor(() => expect(statusHandler).toBeTypeOf("function"));
+    statusHandler?.({ status: "connected" });
+    return { session, current };
+  }
+
+  it("submits a command with a carriage return", async () => {
+    const { session, current } = await connectedSession();
+
+    session.sendCommand("uptime");
+
+    await vi.waitFor(() =>
+      expect(current.send).toHaveBeenCalledWith("uptime\r"),
+    );
+    session.dispose();
+  });
+
+  it("replaces a trailing line feed with a carriage return", async () => {
+    const { session, current } = await connectedSession();
+
+    session.sendCommand("uptime\n");
+
+    await vi.waitFor(() =>
+      expect(current.send).toHaveBeenCalledWith("uptime\r"),
+    );
+    session.dispose();
+  });
+
+  it("records typed input but not programmatic commands", async () => {
+    const { session } = await connectedSession();
+    const noteInput = vi.spyOn(session.commands, "noteInput");
+
+    session.sendCommand("uptime");
+    session.send("x");
+
+    expect(noteInput).toHaveBeenCalledOnce();
+    expect(noteInput).toHaveBeenCalledWith("x");
+    session.dispose();
+  });
+
+  it("batches rapid typed input without changing its order", async () => {
+    vi.useFakeTimers();
+    const { session, current } = await connectedSession();
+
+    session.send("c");
+    session.send("d");
+
+    expect(current.send).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(INPUT_FLUSH_DELAY_MS);
+    expect(current.send).toHaveBeenCalledOnce();
+    expect(current.send).toHaveBeenCalledWith("cd");
     session.dispose();
   });
 });

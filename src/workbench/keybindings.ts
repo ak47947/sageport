@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { useBroadcastStore } from "@/features/terminal/broadcast";
 import { useTerminalSearch } from "@/features/terminal/search";
+import { getSession } from "@/features/terminal/sessions";
 import { IS_MACOS } from "@/lib/platform";
 import { useLayoutStore } from "./layout";
 import { useOverlayStore } from "./overlays";
@@ -70,6 +71,11 @@ function runKeybinding(id: KeybindingId): void {
     const active = tabs.tabs.find((tab) => tab.id === tabs.activeId);
     if (active?.kind === "terminal") {
       useTerminalSearch.getState().open(active.activePaneId);
+    }
+  } else if (id === "terminal.clear") {
+    const active = tabs.tabs.find((tab) => tab.id === tabs.activeId);
+    if (active?.kind === "terminal") {
+      getSession(active.activePaneId)?.term.clear();
     }
   } else if (id === "terminal.copy") {
     copyActivePane();

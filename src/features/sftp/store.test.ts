@@ -72,6 +72,7 @@ describe("SFTP navigation state", () => {
         right: { tabs: [], activeTabId: null },
       },
       transfers: {},
+      transferQueue: [],
       deletions: {},
       refresh: refreshDirectory,
     });
@@ -555,6 +556,44 @@ describe("SFTP transfer refresh", () => {
 
     expect(refresh).toHaveBeenCalledOnce();
     expect(refresh).toHaveBeenCalledWith("left", "left-target");
+  });
+
+  it("queues transfers beyond the concurrency limit and reorders waiting items", async () => {
+    const entries: FileEntry[] = Array.from({ length: 6 }, (_, index) => ({
+      name: `report-${index}.pdf`,
+      path: `/uploads/report-${index}.pdf`,
+      kind: "file",
+      size: 42,
+      modified: null,
+      permissions: null,
+      isSymlink: false,
+    }));
+
+    await useSftpStore.getState().transfer("right", entries);
+
+    expect(ipc.sftp.transfer).toHaveBeenCalledTimes(4);
+    const [firstQueued, secondQueued] = useSftpStore.getState().transferQueue;
+    expect(firstQueued).toBeDefined();
+    expect(secondQueued).toBeDefined();
+
+    useSftpStore.getState().moveQueuedTransfer(secondQueued!, -1);
+    expect(useSftpStore.getState().transferQueue).toEqual([
+      secondQueued,
+      firstQueued,
+    ]);
+
+    const [completedId] = vi.mocked(ipc.sftp.transfer).mock.calls[0];
+    useSftpStore.getState().applyTransfer({
+      transferId: completedId,
+      transferred: 42,
+      total: 42,
+      file: entries[0]!.name,
+      status: "done",
+    });
+
+    expect(ipc.sftp.transfer).toHaveBeenCalledTimes(5);
+    expect(vi.mocked(ipc.sftp.transfer).mock.calls[4]?.[0]).toBe(secondQueued);
+    useSftpStore.getState().cancelTransfer(firstQueued!);
   });
 
   it("updates active transfer byte counts in the history cache", () => {

@@ -140,6 +140,16 @@ export function useCommands(): WorkbenchCommand[] {
         run: () => useTabsStore.getState().focusPaneNext(1),
       },
       {
+        id: "terminal.clear",
+        categoryKey: "commands.category.terminal",
+        label: t("terminal.menu.clear"),
+        shortcut: commandShortcut("terminal.clear", keybindingOverrides),
+        run: () => {
+          const pane = activeTerminalPane();
+          if (pane) getSession(pane.id)?.term.clear();
+        },
+      },
+      {
         id: "terminal.copy",
         categoryKey: "commands.category.terminal",
         label: t("commands.terminal.copy"),

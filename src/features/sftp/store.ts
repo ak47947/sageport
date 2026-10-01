@@ -97,6 +97,7 @@ interface SftpState {
   panes: Record<PaneSide, PaneState>;
 
   transfers: Record<string, ActiveTransfer>;
+  transferQueue: string[];
   deletions: Record<string, ActiveDeleteOperation>;
   treeRefresh: {
     side: PaneSide;
@@ -168,6 +169,7 @@ interface SftpState {
   applyDelete: (e: DeleteEvent) => void;
 
   cancelTransfer: (transferId: string) => void;
+  moveQueuedTransfer: (transferId: string, direction: -1 | 1) => void;
   cancelDelete: (operationId: string) => void;
 
   transfer: (fromSide: PaneSide, entries?: FileEntry[]) => Promise<void>;
@@ -304,6 +306,60 @@ export function bridgeSftpEvents(): Promise<void> {
 export const useSftpStore = create<SftpState>((set, get) => {
   const navigationRequests = new Map<string, number>();
   const connectionRequests = new Map<string, symbol>();
+  const queuedRequests = new Map<
+    string,
+    {
+      source: { connectionId: string | null; path: string };
+      dest: { connectionId: string | null; path: string };
+      targetName: string;
+      overwrite: boolean;
+    }
+  >();
+
+  const drainTransferQueue = () => {
+    const state = get();
+    const running = Object.values(state.transfers).filter(
+      (transfer) => !transfer.queued,
+    ).length;
+    const ids = state.transferQueue.slice(0, Math.max(0, 4 - running));
+    for (const transferId of ids) {
+      const request = queuedRequests.get(transferId);
+      if (!request) continue;
+      queuedRequests.delete(transferId);
+      set((current) => ({
+        transferQueue: current.transferQueue.filter(
+          (candidate) => candidate !== transferId,
+        ),
+        transfers: {
+          ...current.transfers,
+          [transferId]: {
+            ...current.transfers[transferId],
+            queued: false,
+          },
+        },
+      }));
+      void ipc.sftp
+        .transfer(
+          transferId,
+          request.source,
+          request.dest,
+          request.targetName,
+          request.overwrite,
+        )
+        .then(() =>
+          queryClient.invalidateQueries({ queryKey: transferHistoryKey }),
+        )
+        .catch((err) => {
+          set((current) => {
+            const transfers = { ...current.transfers };
+            delete transfers[transferId];
+            return { transfers };
+          });
+          toast.error(t("sftp.transferError"), errorMessage(err));
+          drainTransferQueue();
+        });
+    }
+  };
 
   const canAddTab = (notify = true) => {
     const { left, right } = get().panes;
@@ -435,6 +491,7 @@ export const useSftpStore = create<SftpState>((set, get) => {
     ratio: 0.5,
     panes: { left: emptyPane(), right: emptyPane() },
     transfers: {},
+    transferQueue: [],
     deletions: {},
     treeRefresh: null,
     pendingConflict: null,
@@ -830,6 +887,7 @@ export const useSftpStore = create<SftpState>((set, get) => {
         delete rest[e.transferId];
         return { transfers: rest };
       });
+      drainTransferQueue();
       if (e.status === "error") {
         toast.error(
           t("sftp.transferFailed"),
@@ -920,6 +978,19 @@ export const useSftpStore = create<SftpState>((set, get) => {
     },
 
     cancelTransfer: (transferId) => {
+      if (queuedRequests.delete(transferId)) {
+        set((s) => {
+          const transfers = { ...s.transfers };
+          delete transfers[transferId];
+          return {
+            transfers,
+            transferQueue: s.transferQueue.filter(
+              (candidate) => candidate !== transferId,
+            ),
+          };
+        });
+        return;
+      }
       set((s) => {
         const transfer = s.transfers[transferId];
         if (!transfer) return s;
@@ -944,6 +1015,25 @@ export const useSftpStore = create<SftpState>((set, get) => {
         toast.error(t("sftp.cancelError"), errorMessage(err));
       });
     },
+
+    moveQueuedTransfer: (transferId, direction) =>
+      set((state) => {
+        const index = state.transferQueue.indexOf(transferId);
+        const nextIndex = index + direction;
+        if (
+          index === -1 ||
+          nextIndex < 0 ||
+          nextIndex >= state.transferQueue.length
+        ) {
+          return state;
+        }
+        const transferQueue = [...state.transferQueue];
+        [transferQueue[index], transferQueue[nextIndex]] = [
+          transferQueue[nextIndex],
+          transferQueue[index],
+        ];
+        return { transferQueue };
+      }),
 
     cancelDelete: (operationId) => {
       set((s) => {
@@ -1025,7 +1115,14 @@ export const useSftpStore = create<SftpState>((set, get) => {
         }
         occupied.add(targetName);
         const transferId = crypto.randomUUID();
+        queuedRequests.set(transferId, {
+          source: { connectionId: srcTab.connectionId, path: item.path },
+          dest: { connectionId: dstTab.connectionId, path: dstTab.cwd },
+          targetName,
+          overwrite,
+        });
         set((s) => ({
+          transferQueue: [...s.transferQueue, transferId],
           transfers: {
             ...s.transfers,
             [transferId]: {
@@ -1041,28 +1138,13 @@ export const useSftpStore = create<SftpState>((set, get) => {
                 srcTab.connectionId,
                 dstTab.connectionId,
               ),
+              queued: true,
               destinationSide: dstSide,
               destinationTabId: dstTab.id,
             },
           },
         }));
-        try {
-          await ipc.sftp.transfer(
-            transferId,
-            { connectionId: srcTab.connectionId, path: item.path },
-            { connectionId: dstTab.connectionId, path: dstTab.cwd },
-            targetName,
-            overwrite,
-          );
-          void queryClient.invalidateQueries({ queryKey: transferHistoryKey });
-        } catch (err) {
-          set((s) => {
-            const rest = { ...s.transfers };
-            delete rest[transferId];
-            return { transfers: rest };
-          });
-          toast.error(t("sftp.transferError"), errorMessage(err));
-        }
+        drainTransferQueue();
       }
     },
 

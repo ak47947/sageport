@@ -1,4 +1,4 @@
-import { PanelBottom, PanelRight, Search } from "lucide-react";
+import { PanelBottom, PanelLeft, PanelRight, Search } from "lucide-react";
 import { memo } from "react";
 
 import appLogo from "@/assets/app-logo.svg";
@@ -20,6 +20,8 @@ import { WindowControls } from "./WindowControls";
 export const TitleBar = memo(function TitleBar() {
   const { t } = useI18n();
   const openPalette = useOverlayStore((s) => s.openPalette);
+  const sidebarVisible = useLayoutStore((s) => s.sidebarVisible);
+  const toggleSidebar = useLayoutStore((s) => s.toggleSidebar);
   const panelVisible = useLayoutStore((s) => s.panelVisible);
   const auxVisible = useLayoutStore((s) => s.auxVisible);
   const togglePanel = useLayoutStore((s) => s.togglePanel);
@@ -34,12 +36,17 @@ export const TitleBar = memo(function TitleBar() {
   return (
     <header
       data-tauri-drag-region
-      className="grid h-[var(--titlebar-height)] shrink-0 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center border-b border-border-subtle bg-surface"
+      className={cn(
+        "grid h-[var(--titlebar-height)] shrink-0 items-center border-b border-border-subtle bg-surface",
+        IS_MACOS
+          ? "grid-cols-[minmax(8rem,1fr)_minmax(0,28rem)_minmax(8rem,1fr)]"
+          : "grid-cols-[minmax(16rem,1fr)_minmax(0,28rem)_minmax(16rem,1fr)]",
+      )}
     >
       <div
         data-tauri-drag-region
         className={cn(
-          "flex h-full items-center",
+          "flex h-full items-center gap-2.5",
           IS_MACOS ? "pl-[5.35rem]" : "pl-2",
         )}
       >
@@ -57,7 +64,7 @@ export const TitleBar = memo(function TitleBar() {
         type="button"
         onClick={() => openPalette("quick")}
         className={cn(
-          "flex h-[var(--toolbar-control-size)] items-center justify-center gap-2 rounded-md border bg-surface-sunken px-2.5 text-xs text-muted-foreground transition-colors hover:bg-background hover:text-foreground",
+          "flex h-[var(--compact-control-size)] min-w-0 items-center justify-center gap-2 rounded-md border border-border-subtle bg-surface-sunken px-2.5 text-xs text-muted-foreground transition-colors hover:border-border-strong hover:bg-background hover:text-foreground",
           CONTROL_INTERACTION_CLASS,
         )}
       >
@@ -78,6 +85,13 @@ export const TitleBar = memo(function TitleBar() {
             IS_MACOS ? "pr-2" : "pr-1",
           )}
         >
+          <LayoutToggle
+            label={t("titleBar.toggleSidebar")}
+            active={sidebarVisible}
+            onClick={toggleSidebar}
+          >
+            <PanelLeft className="size-4" />
+          </LayoutToggle>
           <LayoutToggle
             label={t("titleBar.togglePanel")}
             active={panelVisible}

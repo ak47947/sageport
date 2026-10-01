@@ -1,6 +1,7 @@
 import type { TransferEvent } from "@/types/models";
 
 export interface ActiveTransfer extends TransferEvent {
+  queued: boolean;
   sourceConnectionId: string | null;
   destConnectionId: string | null;
   destinationSide?: "left" | "right";
@@ -20,6 +21,7 @@ export function pendingTransfer(
 ): ActiveTransfer {
   return {
     ...event,
+    queued: false,
     sourceConnectionId,
     destConnectionId,
     cancelRequested: false,

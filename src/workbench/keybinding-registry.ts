@@ -20,6 +20,7 @@ export type KeybindingId =
   | "terminal.focusPreviousPane"
   | "terminal.focusNextPane"
   | "terminal.search"
+  | "terminal.clear"
   | "terminal.copy"
   | "terminal.paste"
   | "view.toggleSidebar"
@@ -116,6 +117,12 @@ export const KEYBINDING_DEFINITIONS: readonly KeybindingDefinition[] = [
     categoryKey: "commands.category.terminal",
     labelKey: "commands.terminal.search",
     defaultBindings: ["mod+f"],
+  },
+  {
+    id: "terminal.clear",
+    categoryKey: "commands.category.terminal",
+    labelKey: "terminal.menu.clear",
+    defaultBindings: ["mod+k"],
   },
   {
     id: "terminal.copy",

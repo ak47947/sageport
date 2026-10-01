@@ -292,7 +292,7 @@ export function FileList({
     entries: FileEntry[],
   ) => {
     if (e.button !== 0) return;
-    e.currentTarget.closest("table")?.focus();
+    e.currentTarget.closest("table")?.focus({ preventScroll: true });
     dragRef.current = {
       pointerId: e.pointerId,
       startX: e.clientX,

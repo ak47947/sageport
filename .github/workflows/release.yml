@@ -47,6 +47,7 @@ jobs:
       contents: write
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
+      created: ${{ steps.release.outputs.created }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,6 +58,16 @@ jobs:
         id: release
         run: |
           TAG="${{ needs.prepare.outputs.tag }}"
+          if release_id=$(gh release view "$TAG" --json databaseId,isDraft --jq 'select(.isDraft).databaseId'); then
+            if [[ -z "$release_id" ]]; then
+              echo "::error::Release $TAG is already published"
+              exit 1
+            fi
+            printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           FROM_ARGS=()
           if ! git tag --list 'v*.*.*' | grep -vFx "$TAG" | grep -q .; then
             EMPTY_TREE=4b825dc642cb6eb9a060e54bf8d69288fbee4904
@@ -65,7 +76,8 @@ jobs:
           fi
           npx changelogithub@14 --draft --to "$TAG" --name "Sageport $TAG" "${FROM_ARGS[@]}"
           release_id=$(gh release view "$TAG" --json databaseId -q .databaseId)
-          echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
+          printf 'release_id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+          echo "created=true" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_AUTHOR_NAME: github-actions[bot]
@@ -250,5 +262,5 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Delete orphaned draft release
-        if: needs.release.outputs.release_id != ''
+        if: needs.release.outputs.created == 'true'
         run: gh release delete "${{ needs.prepare.outputs.tag }}" --yes

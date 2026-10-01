@@ -247,7 +247,7 @@ function ThemeFamilyCard({
         active ? "border-primary ring-2 ring-primary/25" : CONTROL_BORDER_CLASS,
       )}
     >
-      <div className="grid h-24 grid-cols-2">
+      <div className="grid h-24 w-full grid-cols-2">
         {(["light", "dark"] as const).map((appearance) => (
           <ThemePreview key={appearance} theme={family.themes[appearance]} />
         ))}
@@ -280,7 +280,7 @@ function ThemePreview({
 
   return (
     <div
-      className="flex min-w-0 border-r last:border-r-0"
+      className="grid min-w-0 grid-cols-[1fr_2fr] border-r last:border-r-0"
       style={{
         backgroundColor: terminal.background,
         borderColor: colors.border,
@@ -288,7 +288,7 @@ function ThemePreview({
       }}
     >
       <div
-        className="flex w-1/3 flex-col gap-1 border-r p-1.5"
+        className="flex min-w-0 flex-col gap-1 border-r p-1.5"
         style={{
           backgroundColor: colors.surface,
           borderColor: colors.border,
@@ -307,7 +307,7 @@ function ThemePreview({
           style={{ backgroundColor: colors.mutedForeground }}
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 p-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5 p-1.5">
         <span
           className="h-3 rounded-sm"
           style={{ backgroundColor: colors.listActive }}

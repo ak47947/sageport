@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Eye,
   EyeOff,
   History,
@@ -309,28 +311,44 @@ interface DisplayOperation {
   speedBps: number;
   etaSeconds: number | null;
   onCancel: () => void;
+  queued?: boolean;
 }
 
 function OperationStrip() {
   const { t } = useI18n();
   const transfers = useSftpStore((s) => s.transfers);
+  const transferQueue = useSftpStore((s) => s.transferQueue);
   const deletions = useSftpStore((s) => s.deletions);
   const cancelTransfer = useSftpStore((s) => s.cancelTransfer);
+  const moveQueuedTransfer = useSftpStore((s) => s.moveQueuedTransfer);
   const cancelDelete = useSftpStore((s) => s.cancelDelete);
+  const queuePositions = new Map(
+    transferQueue.map((transferId, index) => [transferId, index]),
+  );
 
   const active: DisplayOperation[] = [
-    ...Object.values(transfers).map((operation) => ({
-      id: operation.transferId,
-      kind: "transfer" as const,
-      label: operation.file,
-      completed: operation.transferred,
-      total: operation.total,
-      phase: operation.phase,
-      cancelRequested: operation.cancelRequested,
-      speedBps: operation.speedBps,
-      etaSeconds: operation.etaSeconds,
-      onCancel: () => cancelTransfer(operation.transferId),
-    })),
+    ...Object.values(transfers)
+      .sort((left, right) => {
+        if (left.queued !== right.queued) return left.queued ? 1 : -1;
+        if (!left.queued) return 0;
+        return (
+          (queuePositions.get(left.transferId) ?? 0) -
+          (queuePositions.get(right.transferId) ?? 0)
+        );
+      })
+      .map((operation) => ({
+        id: operation.transferId,
+        kind: "transfer" as const,
+        label: operation.file,
+        completed: operation.transferred,
+        total: operation.total,
+        phase: operation.phase,
+        cancelRequested: operation.cancelRequested,
+        speedBps: operation.speedBps,
+        etaSeconds: operation.etaSeconds,
+        onCancel: () => cancelTransfer(operation.transferId),
+        queued: operation.queued,
+      })),
     ...Object.values(deletions).map((operation) => ({
       id: operation.operationId,
       kind: "delete" as const,
@@ -385,6 +403,10 @@ function OperationStrip() {
               <span className="shrink-0 text-2xs text-warning">
                 {t("sftp.cancelling")}
               </span>
+            ) : item.queued ? (
+              <span className="shrink-0 text-2xs text-muted-foreground">
+                {t("sftp.queued")}
+              </span>
             ) : item.phase ? (
               <span className="shrink-0 text-2xs text-muted-foreground">
                 {t(`sftp.phase.${item.phase}`)}
@@ -400,12 +422,41 @@ function OperationStrip() {
             >
               <div
                 className={cn(
-                  "h-full rounded-full bg-primary transition-[width]",
+                  "ui-progress-fill bg-primary",
                   indeterminate && "animate-pulse",
                 )}
-                style={{ width: `${indeterminate ? 100 : pct}%` }}
+                style={{
+                  transform: `scaleX(${indeterminate ? 1 : Math.max(0, Math.min(pct, 100)) / 100})`,
+                }}
               />
             </div>
+            {item.queued && (
+              <div className="flex shrink-0 items-center">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5 rounded-md text-muted-foreground"
+                  disabled={transferQueue.indexOf(item.id) <= 0}
+                  aria-label={t("sftp.moveTransferUp")}
+                  onClick={() => moveQueuedTransfer(item.id, -1)}
+                >
+                  <ArrowUp className="size-3" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-5 rounded-md text-muted-foreground"
+                  disabled={
+                    transferQueue.indexOf(item.id) === -1 ||
+                    transferQueue.indexOf(item.id) === transferQueue.length - 1
+                  }
+                  aria-label={t("sftp.moveTransferDown")}
+                  onClick={() => moveQueuedTransfer(item.id, 1)}
+                >
+                  <ArrowDown className="size-3" />
+                </Button>
+              </div>
+            )}
             {item.kind === "delete" && (
               <span className="shrink-0 tabular-nums text-muted-foreground">
                 {item.phase === "scanning"

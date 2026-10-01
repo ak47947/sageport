@@ -78,6 +78,12 @@ describe("keybinding registry", () => {
     expect(findKeybinding(key("v", { metaKey: true }), {}, true)).toBe(
       "terminal.paste",
     );
+    expect(findKeybinding(key("k", { metaKey: true }), {}, true)).toBe(
+      "terminal.clear",
+    );
+    expect(findKeybinding(key("k", { ctrlKey: true }), {}, false)).toBe(
+      "terminal.clear",
+    );
     expect(findKeybinding(key("C", { shiftKey: true }), {}, true)).toBeNull();
     const custom = { "view.toggleSidebar": "mod+shift+s" } as const;
     expect(

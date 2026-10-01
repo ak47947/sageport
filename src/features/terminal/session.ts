@@ -17,6 +17,8 @@ import { cwdFromOsc7 } from "./working-directory";
 
 export const CONNECT_TIMEOUT_MS = 45_000;
 export const MAX_PENDING_INPUT_BYTES = 1024 * 1024;
+export const COMMAND_TERMINATOR = "\r";
+export const INPUT_FLUSH_DELAY_MS = 8;
 const COLUMN_RESIZE_DEBOUNCE_MS = 100;
 
 export function parseTerminalDirectory(data: string): string | undefined {
@@ -76,6 +78,7 @@ export class TerminalSession {
   private pendingInput = "";
   private pendingInputBytes = 0;
   private sendingInput = false;
+  private inputFlushTimer: ReturnType<typeof setTimeout> | undefined;
   private disconnectRequested = false;
 
   private watchdog: ReturnType<typeof setTimeout> | undefined;
@@ -215,6 +218,19 @@ export class TerminalSession {
   }
 
   send(data: string) {
+    this.enqueue(data, true, true);
+  }
+
+  sendCommand(command: string) {
+    this.commands.noteCommand(command);
+    this.enqueue(
+      `${command.replace(/[\r\n]+$/, "")}${COMMAND_TERMINATOR}`,
+      false,
+      false,
+    );
+  }
+
+  private enqueue(data: string, trackInput: boolean, batch: boolean) {
     if (this.disposed || this.ended || data.length === 0) return;
     const dataBytes = new TextEncoder().encode(data).byteLength;
     if (this.pendingInputBytes + dataBytes > MAX_PENDING_INPUT_BYTES) {
@@ -225,16 +241,14 @@ export class TerminalSession {
       );
       return;
     }
-    const command = this.commands.noteInput(data);
-    if (command) this.opts.onCommand?.(command);
+    if (trackInput) {
+      const command = this.commands.noteInput(data);
+      if (command) this.opts.onCommand?.(command);
+    }
     this.pendingInput += data;
     this.pendingInputBytes += dataBytes;
-    this.flushInput();
-  }
-
-  sendCommand(command: string) {
-    this.commands.noteCommand(command);
-    this.send(command.endsWith("\n") ? command : `${command}\n`);
+    if (batch) this.scheduleInputFlush();
+    else this.flushInput();
   }
 
   focus() {
@@ -292,6 +306,7 @@ export class TerminalSession {
     this.disposed = true;
     this.pendingInput = "";
     this.pendingInputBytes = 0;
+    clearTimeout(this.inputFlushTimer);
     this.clearWatchdog();
     clearTimeout(this.colsTimer);
     this.observer?.disconnect();
@@ -388,6 +403,8 @@ export class TerminalSession {
   }
 
   private flushInput() {
+    clearTimeout(this.inputFlushTimer);
+    this.inputFlushTimer = undefined;
     if (
       !this.inputReady ||
       this.sendingInput ||
@@ -416,12 +433,22 @@ export class TerminalSession {
       });
   }
 
+  private scheduleInputFlush() {
+    if (this.inputFlushTimer) return;
+    this.inputFlushTimer = setTimeout(
+      () => this.flushInput(),
+      INPUT_FLUSH_DELAY_MS,
+    );
+  }
+
   private failInput(error: unknown) {
     if (this.disposed || this.ended) return;
     this.ended = true;
     this.inputReady = false;
     this.pendingInput = "";
     this.pendingInputBytes = 0;
+    clearTimeout(this.inputFlushTimer);
+    this.inputFlushTimer = undefined;
     this.emitStatus({
       status: "error",
       code: errorCode(error),

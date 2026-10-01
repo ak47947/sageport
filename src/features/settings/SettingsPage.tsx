@@ -212,6 +212,11 @@ function SettingsPage({
 
         <ScrollArea className="min-h-0 min-w-0 flex-1">
           <main className="settings-content mx-auto flex w-full max-w-3xl flex-col p-5 sm:p-8">
+            <header className="mb-6 border-b border-border-subtle pb-5">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {t(NAV.find((item) => item.id === section)!.labelKey)}
+              </h1>
+            </header>
             {section === "general" && <GeneralSection />}
             {section === "network" && <ProxySettings />}
             {section === "keybindings" && <KeybindingsSection />}
